@@ -1,0 +1,42 @@
+# example.yaml - 全栈开发示例
+# 使用: ./start-tmux-claude -w example
+
+name: "全栈开发示例"
+shell: auto
+
+windows:
+  # 窗口1: 监控窗口
+  - name: monitor
+    root: ~/
+    panes:
+      - cmd: python3 ~/claude-tmux/monitor.py
+
+  # 窗口2: 前端开发
+  - name: frontend
+    root: ~/projects/my-app
+    layout: main-horizontal
+    panes:
+      - cmd: vim .
+      - cmd: npm run dev
+      - cmd: git status
+
+  # 窗口3: 后端开发
+  - name: backend
+    root: ~/projects/my-api
+    layout: even-horizontal
+    panes:
+      - cmd: vim .
+      - cmd: python manage.py runserver
+
+  # 窗口4: 数据库/日志
+  - name: db
+    root: ~/
+    panes:
+      - cmd: pgcli mydb
+      - cmd: tail -f /var/log/app.log
+
+  # 窗口5: 文档
+  - name: docs
+    root: ~/projects/docs
+    panes:
+      - cmd: vim README.md

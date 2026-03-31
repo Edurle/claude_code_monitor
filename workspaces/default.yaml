@@ -1,0 +1,26 @@
+# default.yaml - Claude Code 默认工作区
+# 使用: ./start-tmux-claude 或 ./start-tmux-claude -w default
+
+name: "Claude Code 默认工作区"
+shell: auto  # auto / bash / zsh
+
+windows:
+  # 窗口1: 监控窗口（必需）
+  - name: monitor
+    root: ~/
+    panes:
+      - cmd: python3 ~/claude-tmux/monitor.py
+
+  # 窗口2: 主工作区
+  - name: main
+    root: ~/projects
+    layout: even-horizontal
+    panes:
+      - cmd: ls -la
+      -  # 空pane，等待输入
+
+  # 窗口3: Git/Shell
+  - name: shell
+    root: ~/
+    panes:
+      - cmd: clear

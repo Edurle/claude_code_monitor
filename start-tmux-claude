@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# start-tmux-claude — Claude Code 工作区启动器
+#
+# 功能:
+#   - 在非 tmux 会话中启动监控窗口
+#   - 恢复预定义的工作区（窗口、pane、命令）
+#   - 支持 bash 和 zsh 两种 shell 模式
+#   - 如果已有 tmux 会话，询问是否关闭
+#
+# 使用:
+#   ./start-tmux-claude                    # 使用默认配置
+#   ./start-tmux-claude -w myproject       # 使用 myproject.yaml
+#   ./start-tmux-claude -w a -w b          # 合并多个工作区
+#   ./start-tmux-claude -f                 # 强制关闭现有会话
+#   ./start-tmux-claude -l                 # 列出可用工作区
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACES_DIR="$SCRIPT_DIR/workspaces"
+WORKSPACE_CMD="python3 $SCRIPT_DIR/lib/workspace.py"
+
+# 默认值
+WORKSPACES=()
+FORCE=false
+SESSION_NAME="monitor"
+
+# 颜色
+BOLD="\033[1m"; DIM="\033[2m"
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; CYAN="\033[36m"; RESET="\033[0m"
+
+# ── 帮助信息 ────────────────────────────────────────────────────────────────
+show_help() {
+    cat << EOF
+${BOLD}Claude Code 工作区启动器${RESET}
+
+${CYAN}使用方式:${RESET}
+  $(basename "$0") [选项] [工作区...]
+
+${CYAN}选项:${RESET}
+  -w, --workspace NAME   指定工作区名称（可多次使用）
+  -s, --session NAME     指定 tmux 会话名称（默认: monitor）
+  -f, --force            强制关闭现有会话，不询问
+  -l, --list             列出可用工作区
+  -h, --help             显示帮助信息
+
+${CYAN}示例:${RESET}
+  $(basename "$0")                       # 使用默认配置 (default.yaml)
+  $(basename "$0") -w myproject          # 使用 myproject.yaml
+  $(basename "$0") -w frontend -w backend # 合并多个工作区
+  $(basename "$0") -f                    # 强制关闭现有会话
+
+${CYAN}工作区目录:${RESET}
+  $WORKSPACES_DIR
+EOF
+}
+
+# ── 列出工作区 ──────────────────────────────────────────────────────────────
+list_workspaces() {
+    echo -e "${CYAN}可用工作区:${RESET}"
+    if [[ -d "$WORKSPACES_DIR" ]]; then
+        for f in "$WORKSPACES_DIR"/*.yaml; do
+            [[ -f "$f" ]] && echo "  - $(basename "$f" .yaml)"
+        done
+    else
+        echo "  ${DIM}(无)${RESET}"
+    fi
+}
+
+# ── 解析参数 ────────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -w|--workspace)
+            WORKSPACES+=("$2")
+            shift 2
+            ;;
+        -s|--session)
+            SESSION_NAME="$2"
+            shift 2
+            ;;
+        -f|--force)
+            FORCE=true
+            shift
+            ;;
+        -l|--list)
+            list_workspaces
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            echo -e "${RED}错误: 未知参数 $1${RESET}"
+            echo "运行 '$(basename "$0") --help' 查看帮助"
+            exit 1
+            ;;
+        *)
+            WORKSPACES+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# 默认工作区
+[[ ${#WORKSPACES[@]} -eq 0 ]] && WORKSPACES=("default")
+
+# ── 1. 检查是否在 tmux 内 ───────────────────────────────────────────────────
+if [[ -n "${TMUX:-}" ]]; then
+    echo -e "${RED}错误: 已在 tmux 会话中${RESET}"
+    echo "请在普通终端运行此脚本"
+    exit 1
+fi
+
+# ── 2. 检查 tmux 是否安装 ───────────────────────────────────────────────────
+if ! command -v tmux &>/dev/null; then
+    echo -e "${RED}错误: tmux 未安装${RESET}"
+    echo "请先安装 tmux: sudo apt install tmux"
+    exit 1
+fi
+
+# ── 3. 检查现有会话 ─────────────────────────────────────────────────────────
+sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null || true)
+if [[ -n "$sessions" ]]; then
+    if [[ "$FORCE" != true ]]; then
+        echo -e "${YELLOW}发现现有 tmux 会话:${RESET}"
+        while IFS= read -r s; do
+            echo -e "  ${DIM}- $s${RESET}"
+        done <<< "$sessions"
+        echo
+        read -p "关闭所有会话并启动新工作区? [y/N] " ans
+        if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+            echo -e "${RED}取消启动${RESET}"
+            exit 1
+        fi
+    fi
+    echo -e "${YELLOW}关闭现有会话...${RESET}"
+    while IFS= read -r s; do
+        tmux kill-session -t "$s" 2>/dev/null || true
+    done <<< "$sessions"
+fi
+
+# ── 4. 加载配置并创建会话 ───────────────────────────────────────────────────
+workspace_args=""
+for ws in "${WORKSPACES[@]}"; do
+    workspace_args="$workspace_args -w $ws"
+done
+
+echo -e "${GREEN}加载工作区:${RESET} ${WORKSPACES[*]}"
+
+# 生成并执行 tmux 命令
+cmd_count=0
+while IFS= read -r cmd; do
+    [[ -z "$cmd" ]] && continue
+    eval "$cmd"
+    ((cmd_count++)) || true
+done < <($WORKSPACE_CMD $workspace_args -s "$SESSION_NAME")
+
+if [[ $cmd_count -eq 0 ]]; then
+    echo -e "${RED}错误: 未能生成 tmux 命令${RESET}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ 已创建 $cmd_count 条命令${RESET}"
+echo
+
+# ── 5. 附加到会话 ───────────────────────────────────────────────────────────
+echo -e "${CYAN}附加到 tmux 会话...${RESET}"
+echo -e "${DIM}提示: 按 prefix + d 分离会话${RESET}"
+sleep 0.5
+tmux attach-session -t "$SESSION_NAME"

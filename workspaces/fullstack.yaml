@@ -1,0 +1,16 @@
+# fullstack.yaml - 多工作区合并示例
+# 使用: ./start-tmux-claude -w fullstack
+# 这会先加载 default，再追加 frontend 和 backend 的窗口
+
+name: "全栈开发（合并模式）"
+shell: auto
+
+include:
+  - default
+
+windows:
+  # 额外窗口：API 测试
+  - name: api
+    root: ~/
+    panes:
+      - cmd: httpie
