@@ -1,0 +1,27 @@
+# Nord 主题
+name: Nord
+author: Claude
+colors:
+  primary: "#88C0D0"      # 冰蓝
+  secondary: "#81A1C1"    # 蓝色
+  accent: "#EBCB8B"       # 黄色
+  background: "#2E3440"   # 深灰蓝
+  text: "#ECEFF4"         # 白色
+  dim: "#4C566A"          # 灰色
+  success: "#A3BE8C"      # 成功绿
+  warning: "#EBCB8B"      # 警告黄
+  error: "#BF616A"        # 错误红
+styles:
+  hitl:
+    icon: "⚡"
+    glow: false
+  task_complete:
+    icon: "✓"
+    glow: false
+  error:
+    icon: "✗"
+    blink: true
+effects:
+  enable_glow: false
+  enable_blink: true
+  border_style: "rounded"

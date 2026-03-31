@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-# monitor.py — Claude Code HITL 监控界面
+# monitor.py — Claude Code HITL 监控界面 (增强版)
 # 依赖: Python 3.6+ 标准库，无需额外安装
+#
+# 新功能:
+# - 🌈 动态主题引擎
+# - 🏆 成就系统
+# - 🐕 电子宠物助手
 
 import curses
 import json
@@ -8,213 +13,528 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import List, Dict, Optional, Tuple
 
+# 导入自定义模块
+from lib.theme import ThemeManager, Theme
+from lib.achievements import AchievementManager, Achievement
+from lib.pet import Pet, PetState
+from lib.stats import StatsManager
+
+# 配置
 QUEUE_FILE = Path(os.environ.get("CLAUDE_TMUX_QUEUE", Path.home() / ".claude-tmux-queue.jsonl"))
 MONITOR_SESSION = os.environ.get("CLAUDE_TMUX_MONITOR_SESSION", "monitor")
 REFRESH = 1  # 秒
 
-
-def read_queue():
-    if not QUEUE_FILE.exists():
-        return []
-    entries = []
-    with open(QUEUE_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-
-    # 按 session 去重，只保留最新的一条
-    session_map = {}
-    for entry in entries:
-        session = entry.get("session", "")
-        if session:
-            # 如果该 session 还没有记录，或者当前条目时间更新
-            if session not in session_map or entry.get("ts", "") > session_map[session].get("ts", ""):
-                session_map[session] = entry
-
-    # 按时间降序排列（最新的在前）
-    return sorted(session_map.values(), key=lambda e: e.get("ts", ""), reverse=True)
+# 视图模式
+VIEW_QUEUE = "queue"
+VIEW_ACHIEVEMENTS = "achievements"
+VIEW_STATS = "stats"
 
 
-def pop_first():
-    entries = read_queue()
-    if not entries:
-        return
-    with open(QUEUE_FILE, "w") as f:
-        for e in entries[1:]:
-            f.write(json.dumps(e) + "\n")
+class HitlMonitor:
+    """HITL 监控器主类"""
 
+    def __init__(self, stdscr):
+        self.stdscr = stdscr
+        self.status_msg = ""
+        self.status_clear_at = 0
 
-def clear_queue():
-    QUEUE_FILE.write_text("")
+        # 初始化模块
+        self.theme_manager = ThemeManager()
+        self.achievement_manager = AchievementManager()
+        self.stats_manager = StatsManager()
+        self.pet = Pet(achievement_count=self.achievement_manager.unlocked_count)
 
+        # 视图状态
+        self.current_view = VIEW_QUEUE
+        self.achievement_scroll = 0
 
-def tmux(cmd):
-    try:
-        subprocess.run(["tmux"] + cmd, capture_output=True)
-    except Exception:
-        pass
+        # 队列
+        self.last_queue_length = 0
 
+        # 初始化 curses
+        self._init_curses()
 
-def jump_to_task(entry):
-    session = entry.get("session", "")
-    win_idx = entry.get("win_idx", "0")
-    win_name = entry.get("win_name", "")
+    def _init_curses(self):
+        """初始化 curses 设置"""
+        curses.curs_set(0)
+        curses.use_default_colors()
+        self.stdscr.nodelay(True)
+        self.stdscr.timeout(REFRESH * 1000)
 
-    # 检查 session 是否存在
-    r = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True)
-    if r.returncode != 0:
-        return f"Session '{session}' 不存在"
+        # 初始化主题颜色
+        self._init_colors()
 
-    # 先选中对应 window，再 switch-client
-    tmux(["select-window", "-t", f"{session}:{win_idx}"])
-    tmux(["switch-client", "-t", session])
-    return None
+    def _init_colors(self):
+        """初始化颜色"""
+        self.theme_manager.init_curses_colors(self.stdscr)
 
+        import curses
 
-def draw(stdscr, entries, status_msg):
-    stdscr.erase()
-    h, w = stdscr.getmaxyx()
+        # 预定义颜色对（兼容旧代码）
+        curses.init_pair(1, curses.COLOR_CYAN, -1)
+        curses.init_pair(2, curses.COLOR_YELLOW, -1)
+        curses.init_pair(3, curses.COLOR_GREEN, -1)
+        curses.init_pair(4, curses.COLOR_RED, -1)
+        curses.init_pair(5, curses.COLOR_WHITE, -1)
+        curses.init_pair(6, curses.COLOR_MAGENTA, -1)
 
-    # 颜色对
-    curses.init_pair(1, curses.COLOR_CYAN,    -1)  # 标题
-    curses.init_pair(2, curses.COLOR_YELLOW,  -1)  # hitl / 警告
-    curses.init_pair(3, curses.COLOR_GREEN,   -1)  # task_complete
-    curses.init_pair(4, curses.COLOR_RED,     -1)  # error
-    curses.init_pair(5, curses.COLOR_WHITE,   -1)  # 普通
-    curses.init_pair(6, curses.COLOR_MAGENTA, -1)  # info
+        self.TYPE_COLOR = {
+            "hitl": (curses.color_pair(2), "⚡"),
+            "task_complete": (curses.color_pair(3), "✓"),
+            "error": (curses.color_pair(4), "✗"),
+        }
 
-    TYPE_COLOR = {
-        "hitl":          (curses.color_pair(2), "⚡"),
-        "task_complete": (curses.color_pair(3), "✓ "),
-        "error":         (curses.color_pair(4), "✗ "),
-    }
+    def read_queue(self) -> List[dict]:
+        """读取队列"""
+        if not QUEUE_FILE.exists():
+            return []
 
-    row = 0
+        entries = []
+        with open(QUEUE_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
 
-    def addstr(r, c, text, attr=0):
+        # 按 session 去重
+        session_map = {}
+        for entry in entries:
+            session = entry.get("session", "")
+            if session:
+                if session not in session_map or entry.get("ts", "") > session_map[session].get("ts", ""):
+                    session_map[session] = entry
+
+        return sorted(session_map.values(), key=lambda e: e.get("ts", ""), reverse=True)
+
+    def pop_first(self):
+        """弹出队首"""
+        entries = self.read_queue()
+        if not entries:
+            return
+        with open(QUEUE_FILE, "w") as f:
+            for e in entries[1:]:
+                f.write(json.dumps(e) + "\n")
+
+    def clear_queue(self):
+        """清空队列"""
+        QUEUE_FILE.write_text("")
+
+    def tmux(self, cmd: List[str]):
+        """执行 tmux 命令"""
         try:
-            stdscr.addstr(r, c, text[:w - c], attr)
+            subprocess.run(["tmux"] + cmd, capture_output=True)
+        except Exception:
+            pass
+
+    def jump_to_task(self, entry: dict) -> Optional[str]:
+        """跳转到任务"""
+        session = entry.get("session", "")
+        win_idx = entry.get("win_idx", "0")
+
+        r = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True)
+        if r.returncode != 0:
+            return f"Session '{session}' 不存在"
+
+        self.tmux(["select-window", "-t", f"{session}:{win_idx}"])
+        self.tmux(["switch-client", "-t", session])
+        return None
+
+    def addstr(self, row: int, col: int, text: str, attr=0):
+        """安全添加字符串"""
+        try:
+            h, w = self.stdscr.getmaxyx()
+            if row < h and col < w:
+                self.stdscr.addstr(row, col, text[:w - col], attr)
         except curses.error:
             pass
 
-    # ── 标题 ──
-    title = " Claude Code · HITL Monitor "
-    addstr(row, 0, "─" * w, curses.color_pair(1))
-    addstr(row, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
-    row += 1
+    def draw_box(self, y: int, x: int, h: int, w: int, title: str = ""):
+        """绘制边框"""
+        chars = self.theme_manager.get_border_chars()
+        tl, t, tr, r, br, b, bl, l = chars
 
-    count = len(entries)
-    if count == 0:
-        addstr(row + 1, 2, "暂无待处理事件，等待 Claude Code 触发...", curses.color_pair(5) | curses.A_DIM)
-    else:
-        addstr(row, 2, f"待处理: {count} 条", curses.color_pair(2) | curses.A_BOLD)
+        # 顶部
+        self.addstr(y, x, tl + t * (w - 2) + tr)
+        if title:
+            title_text = f" {title} "
+            self.addstr(y, x + 2, title_text)
+
+        # 侧边
+        for i in range(1, h - 1):
+            self.addstr(y + i, x, l)
+            self.addstr(y + i, x + w - 1, r)
+
+        # 底部
+        self.addstr(y + h - 1, x, bl + b * (w - 2) + br)
+
+    def draw_queue_view(self, entries: List[dict]):
+        """绘制队列视图"""
+        h, w = self.stdscr.getmaxyx()
+        row = 0
+
+        import curses
+
+        # 标题栏
+        theme_name = self.theme_manager.current.name
+        title = f" Claude Code · HITL Monitor · {theme_name} "
+        self.addstr(row, 0, "─" * w, curses.color_pair(1))
+        self.addstr(row, max(0, (w - len(title)) // 2), title, curses.color_pair(1) | curses.A_BOLD)
         row += 1
 
-        for idx, entry in enumerate(entries):
+        count = len(entries)
+        if count == 0:
+            self.addstr(row + 1, 2, "暂无待处理事件，等待 Claude Code 触发...", curses.color_pair(5) | curses.A_DIM)
+        else:
+            self.addstr(row, 2, f"待处理: {count} 条", curses.color_pair(2) | curses.A_BOLD)
+            row += 1
+
+            for idx, entry in enumerate(entries):
+                if row >= h - 10:  # 留出宠物和状态栏空间
+                    self.addstr(row, 2, f"... 还有 {count - idx} 条", curses.A_DIM)
+                    break
+
+                ts = entry.get("ts", "")
+                etype = entry.get("type", "")
+                session = entry.get("session", "")
+                win_name = entry.get("win_name", "")
+                info = entry.get("info", "")
+                wdir = entry.get("dir", "")
+
+                color, icon = self.TYPE_COLOR.get(etype, (curses.color_pair(5), "•"))
+                target = f"{session}:{win_name}" if win_name else session
+
+                if idx == 0:
+                    self.addstr(row, 0, "▶ ", curses.color_pair(2) | curses.A_BOLD)
+                    self.addstr(row, 2, f"{icon} [{etype}]", color | curses.A_BOLD)
+                    self.addstr(row, 2 + len(f"{icon} [{etype}]") + 1, target, curses.A_BOLD)
+                    self.addstr(row, 2 + len(f"{icon} [{etype}]") + 1 + len(target) + 1, ts, curses.A_DIM)
+                    row += 1
+                    if wdir:
+                        self.addstr(row, 4, wdir, curses.A_DIM)
+                        row += 1
+                    if info:
+                        self.addstr(row, 4, info, curses.color_pair(6))
+                        row += 1
+                else:
+                    self.addstr(row, 2, f"{icon} [{etype}]  {target}  {ts}", curses.A_DIM)
+                    row += 1
+                    if info:
+                        self.addstr(row, 6, info, curses.A_DIM)
+                        row += 1
+
+        # 绘制宠物区域
+        self._draw_pet_area(h - 8)
+
+        # 状态消息
+        if self.status_msg:
+            self.addstr(h - 3, 2, self.status_msg, curses.color_pair(2))
+
+        # 底部提示
+        self.addstr(h - 2, 0, "─" * w, curses.A_DIM)
+        hints = "[Enter]跳转 [d]丢弃 [c]清空 [T]主题 [A]成就 [S]统计 [P]摸宠物 [F]喂食 [q]退出"
+        self.addstr(h - 1, 0, hints, curses.A_DIM)
+
+    def _draw_pet_area(self, start_row: int):
+        """绘制宠物区域"""
+        import curses
+
+        h, w = self.stdscr.getmaxyx()
+        pet_width = 35
+
+        # 宠物边框
+        self.addstr(start_row, 2, "┌" + "─" * (pet_width - 2) + "┐", curses.A_DIM)
+
+        # 宠物名称和进化形态
+        evolution_name = self.pet.get_evolution_name()
+        self.addstr(start_row, 4, f"🐕 {evolution_name}", curses.color_pair(6))
+
+        # 宠物 ASCII 艺术
+        art_lines = self.pet.get_art_lines()
+        for i, line in enumerate(art_lines):
+            self.addstr(start_row + 1 + i, 4, line)
+
+        # 宠物心情文字
+        mood_text = self.pet.update(len(self.read_queue()))
+        mood_row = start_row + len(art_lines) + 1
+        self.addstr(mood_row, 4, f'"{mood_text}"', curses.color_pair(5))
+
+        # 底部边框
+        end_row = mood_row + 1
+        self.addstr(end_row, 2, "└" + "─" * (pet_width - 2) + "┘", curses.A_DIM)
+
+        # 成就进度（右侧）
+        unlocked = self.achievement_manager.unlocked_count
+        total = self.achievement_manager.total_count
+        progress_text = f"🏆 成就: {unlocked}/{total}"
+        self.addstr(start_row, w - len(progress_text) - 3, progress_text, curses.color_pair(3))
+
+        # 进化进度
+        next_evo, current, needed = self.pet.get_next_evolution_progress(unlocked)
+        if next_evo != "已满级":
+            evo_text = f"进化: {next_evo} ({current}/{needed})"
+            self.addstr(start_row + 1, w - len(evo_text) - 3, evo_text, curses.A_DIM)
+
+    def draw_achievements_view(self):
+        """绘制成就视图"""
+        h, w = self.stdscr.getmaxyx()
+        import curses
+
+        # 标题
+        title = " 🏆 成就系统 "
+        self.addstr(0, 0, "═" * w, curses.color_pair(3))
+        self.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
+
+        # 成就列表
+        all_achievements = self.achievement_manager.get_all()
+        row = 2
+
+        for i, (achievement, unlocked) in enumerate(all_achievements):
             if row >= h - 4:
-                addstr(row, 2, f"... 还有 {count - idx} 条", curses.A_DIM)
-                row += 1
                 break
 
-            ts       = entry.get("ts", "")
-            etype    = entry.get("type", "")
-            session  = entry.get("session", "")
-            win_name = entry.get("win_name", "")
-            info     = entry.get("info", "")
-            wdir     = entry.get("dir", "")
+            prefix = "✓ " if unlocked else "○ "
+            color = curses.color_pair(3) if unlocked else curses.A_DIM
 
-            color, icon = TYPE_COLOR.get(etype, (curses.color_pair(5), "• "))
-            target = f"{session}:{win_name}" if win_name else session
+            self.addstr(row, 2, f"{prefix}{achievement.icon} {achievement.name}", color | (curses.A_BOLD if unlocked else 0))
+            row += 1
+            self.addstr(row, 6, achievement.desc, curses.A_DIM)
+            row += 2
 
-            if idx == 0:
-                # 队首高亮
-                addstr(row, 0, "▶ ", curses.color_pair(2) | curses.A_BOLD)
-                addstr(row, 2, f"{icon} [{etype}]", color | curses.A_BOLD)
-                addstr(row, 2 + len(f"{icon} [{etype}]") + 1, target, curses.A_BOLD)
-                addstr(row, 2 + len(f"{icon} [{etype}]") + 1 + len(target) + 1, ts, curses.A_DIM)
-                row += 1
-                if wdir:
-                    addstr(row, 4, wdir, curses.A_DIM)
-                    row += 1
-                if info:
-                    addstr(row, 4, info, curses.color_pair(6))
-                    row += 1
-            else:
-                addstr(row, 2, f"{icon} [{etype}]  {target}  {ts}", curses.A_DIM)
-                row += 1
-                if info:
-                    addstr(row, 6, info, curses.A_DIM)
-                    row += 1
+        # 统计
+        stats = self.achievement_manager.stats
+        stats_row = h - 5
+        self.addstr(stats_row, 2, "─" * 40, curses.A_DIM)
+        self.addstr(stats_row + 1, 2, f"📊 统计: 总任务 {stats.total_tasks} | HITL {stats.hitl_count} | 错误 {stats.error_count}", curses.color_pair(5))
+        self.addstr(stats_row + 2, 2, f"📅 连续 {stats.consecutive_days} 天 | 今日 {stats.tasks_today} 个任务", curses.color_pair(5))
 
-            row += 0  # 条目间距（不加空行，紧凑）
+        # 提示
+        self.addstr(h - 1, 2, "[A/ESC] 返回队列", curses.A_DIM)
 
-    # ── 状态消息 ──
-    if status_msg:
-        addstr(h - 3, 2, status_msg, curses.color_pair(2))
+    def draw_stats_view(self):
+        """绘制统计视图"""
+        h, w = self.stdscr.getmaxyx()
+        import curses
 
-    # ── 底部操作提示 ──
-    addstr(h - 2, 0, "─" * w, curses.A_DIM)
-    hint = " Enter 跳转处理  d 丢弃队首  c 清空  q 退出  " + time.strftime("%H:%M:%S")
-    addstr(h - 1, 0, hint, curses.A_DIM)
+        # 标题
+        title = " 📊 统计面板 "
+        self.addstr(0, 0, "═" * w, curses.color_pair(6))
+        self.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(6) | curses.A_BOLD)
 
-    stdscr.refresh()
+        row = 2
 
+        # 总体统计
+        summary = self.stats_manager.get_summary()
+        self.addstr(row, 2, "📈 总体统计", curses.color_pair(3) | curses.A_BOLD)
+        row += 1
+        self.addstr(row, 4, f"总任务数: {summary['total_tasks']}", curses.color_pair(5))
+        row += 1
+        self.addstr(row, 4, f"HITL 次数: {summary['total_hitl']}", curses.color_pair(5))
+        row += 1
+        self.addstr(row, 4, f"错误次数: {summary['total_errors']}", curses.color_pair(5))
+        row += 1
+        self.addstr(row, 4, f"活跃项目: {summary['total_projects']}", curses.color_pair(5))
+        row += 1
+        self.addstr(row, 4, f"日均任务: {summary['avg_tasks_per_day']:.1f}", curses.color_pair(5))
+        row += 2
 
-def main(stdscr):
-    curses.curs_set(0)
-    curses.use_default_colors()
-    stdscr.nodelay(True)  # 非阻塞读键
-    stdscr.timeout(REFRESH * 1000)
+        # 周图表
+        self.addstr(row, 2, "📅 本周任务", curses.color_pair(3) | curses.A_BOLD)
+        row += 1
+        week_chart = self.stats_manager.get_week_chart(width=30)
+        for line in week_chart.split("\n"):
+            self.addstr(row, 4, line, curses.color_pair(5))
+            row += 1
 
-    QUEUE_FILE.touch(exist_ok=True)
+        row += 1
 
-    status_msg = ""
-    status_clear_at = 0
+        # 活跃项目
+        self.addstr(row, 2, "🔥 活跃项目 TOP 5", curses.color_pair(3) | curses.A_BOLD)
+        row += 1
+        for project, stats in self.stats_manager.get_top_projects(5):
+            self.addstr(row, 4, f"• {project}: {stats['total']} 个任务", curses.color_pair(5))
+            row += 1
 
-    while True:
-        entries = read_queue()
+        # 提示
+        self.addstr(h - 1, 2, "[S/ESC] 返回队列", curses.A_DIM)
 
-        # 清除过期状态消息
-        if status_msg and time.time() > status_clear_at:
-            status_msg = ""
+    def show_achievement_unlocked(self, achievement: Achievement):
+        """显示成就解锁动画"""
+        import curses
 
-        draw(stdscr, entries, status_msg)
+        h, w = self.stdscr.getmaxyx()
 
-        key = stdscr.getch()
+        # 动画框
+        box_h, box_w = 7, 44
+        box_y = (h - box_h) // 2
+        box_x = (w - box_w) // 2
 
+        # 清除区域
+        for i in range(box_h):
+            self.addstr(box_y + i, box_x, " " * box_w)
+
+        # 绘制边框
+        self.draw_box(box_y, box_x, box_h, box_w)
+
+        # 内容
+        self.addstr(box_y + 1, box_x + 2, " " * (box_w - 4), curses.A_REVERSE)
+        self.addstr(box_y + 1, box_x + (box_w - 26) // 2, "🎉  ACHIEVEMENT UNLOCKED!  🎉", curses.A_REVERSE | curses.A_BOLD)
+
+        self.addstr(box_y + 3, box_x + (box_w - len(achievement.icon) * 2 - len(achievement.name) - 3) // 2,
+                    f"{achievement.icon} {achievement.name} {achievement.icon}", curses.color_pair(3) | curses.A_BOLD)
+
+        self.addstr(box_y + 5, box_x + (box_w - len(achievement.desc) - 2) // 2,
+                    f'"{achievement.desc}"', curses.color_pair(5))
+
+        self.stdscr.refresh()
+        time.sleep(2)  # 显示2秒
+
+    def handle_key(self, key: int, entries: List[dict]) -> bool:
+        """处理按键，返回是否继续运行"""
+        # 清除过期状态
+        if self.status_msg and time.time() > self.status_clear_at:
+            self.status_msg = ""
+
+        import curses
+
+        # 全局快捷键
         if key == ord("q") or key == ord("Q"):
-            break
+            return False
 
-        elif key in (curses.KEY_ENTER, 10, 13):  # Enter
+        # 视图切换
+        if key == ord("a") or key == ord("A"):
+            if self.current_view == VIEW_ACHIEVEMENTS:
+                self.current_view = VIEW_QUEUE
+            else:
+                self.current_view = VIEW_ACHIEVEMENTS
+            return True
+
+        if key == ord("s") or key == ord("S"):
+            if self.current_view == VIEW_STATS:
+                self.current_view = VIEW_QUEUE
+            else:
+                self.current_view = VIEW_STATS
+            return True
+
+        if key == 27:  # ESC
+            self.current_view = VIEW_QUEUE
+            return True
+
+        # 主题切换
+        if key == ord("t") or key == ord("T"):
+            new_theme = self.theme_manager.switch()
+            self._init_colors()
+            self.status_msg = f"主题切换: {self.theme_manager.current.name}"
+            self.status_clear_at = time.time() + 2
+            return True
+
+        # 宠物互动
+        if key == ord("p") or key == ord("P"):
+            response = self.pet.on_pet()
+            self.status_msg = f"宠物说: {response}"
+            self.status_clear_at = time.time() + 2
+            return True
+
+        if key == ord("f") or key == ord("F"):
+            response = self.pet.on_feed()
+            self.status_msg = f"宠物说: {response}"
+            self.status_clear_at = time.time() + 2
+            return True
+
+        # 队列操作（仅在队列视图）
+        if self.current_view != VIEW_QUEUE:
+            return True
+
+        if key in (curses.KEY_ENTER, 10, 13):  # Enter
             if entries:
-                err = jump_to_task(entries[0])
+                err = self.jump_to_task(entries[0])
                 if err:
-                    status_msg = err
-                    status_clear_at = time.time() + 3
+                    self.status_msg = err
+                    self.status_clear_at = time.time() + 3
                 else:
-                    pop_first()
+                    entry = entries[0]
+                    self.pop_first()
+
+                    # 记录事件
+                    event_type = entry.get("type", "hitl")
+                    project = entry.get("project", "")
+                    self.achievement_manager.record_task(event_type, project)
+                    self.stats_manager.record_event(event_type, project)
+
+                    # 检查成就
+                    newly_unlocked = self.achievement_manager.check_achievements()
+                    if newly_unlocked:
+                        from lib.achievements import ACHIEVEMENTS
+                        for aid in newly_unlocked:
+                            self.show_achievement_unlocked(ACHIEVEMENTS[aid])
+                        # 更新宠物进化
+                        self.pet.update_evolution(self.achievement_manager.unlocked_count)
+
+                    self.pet.on_task_complete()
+                    self.status_msg = "已跳转并处理任务"
+                    self.status_clear_at = time.time() + 2
 
         elif key == ord("d") or key == ord("D"):
             if entries:
-                pop_first()
-                status_msg = "已丢弃队首条目"
-                status_clear_at = time.time() + 2
+                self.pop_first()
+                self.pet.on_task_discard()
+                self.status_msg = "已丢弃队首条目"
+                self.status_clear_at = time.time() + 2
 
         elif key == ord("c") or key == ord("C"):
-            clear_queue()
-            status_msg = "队列已清空"
-            status_clear_at = time.time() + 2
+            self.clear_queue()
+            self.pet.on_queue_clear()
+            self.status_msg = "队列已清空"
+            self.status_clear_at = time.time() + 2
+
+        return True
+
+    def run(self):
+        """主循环"""
+        QUEUE_FILE.touch(exist_ok=True)
+
+        while True:
+            entries = self.read_queue()
+
+            # 检测队列变化
+            current_length = len(entries)
+            if current_length > self.last_queue_length:
+                self.pet.on_new_task()
+            self.last_queue_length = current_length
+
+            # 更新活跃项目数
+            projects = set(e.get("project", "") for e in entries if e.get("project"))
+            self.achievement_manager.set_active_projects(len(projects))
+
+            # 绘制
+            self.stdscr.erase()
+            if self.current_view == VIEW_QUEUE:
+                self.draw_queue_view(entries)
+            elif self.current_view == VIEW_ACHIEVEMENTS:
+                self.draw_achievements_view()
+            elif self.current_view == VIEW_STATS:
+                self.draw_stats_view()
+            self.stdscr.refresh()
+
+            # 处理按键
+            key = self.stdscr.getch()
+            if not self.handle_key(key, entries):
+                break
 
 
-def run():
-    curses.wrapper(main)
+def main():
+    """入口函数"""
+    def run_wrapper(stdscr):
+        monitor = HitlMonitor(stdscr)
+        monitor.run()
+
+    curses.wrapper(run_wrapper)
 
 
 if __name__ == "__main__":
-    run()
+    main()

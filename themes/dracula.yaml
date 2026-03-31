@@ -1,0 +1,27 @@
+# Dracula 主题
+name: Dracula
+author: Claude
+colors:
+  primary: "#BD93F9"      # 紫色
+  secondary: "#FF79C6"    # 粉色
+  accent: "#F1FA8C"       # 黄色
+  background: "#282A36"   # 深紫灰
+  text: "#F8F8F2"         # 白色
+  dim: "#6272A4"          # 灰蓝
+  success: "#50FA7B"      # 成功绿
+  warning: "#FFB86C"      # 警告橙
+  error: "#FF5555"        # 错误红
+styles:
+  hitl:
+    icon: "⚡"
+    glow: true
+  task_complete:
+    icon: "✓"
+    glow: true
+  error:
+    icon: "✗"
+    blink: true
+effects:
+  enable_glow: true
+  enable_blink: false
+  border_style: "single"

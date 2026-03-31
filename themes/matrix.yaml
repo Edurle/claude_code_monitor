@@ -1,0 +1,27 @@
+# Matrix 主题
+name: Matrix
+author: Claude
+colors:
+  primary: "#00FF00"      # 矩阵绿
+  secondary: "#00AA00"    # 暗绿
+  accent: "#88FF88"       # 亮绿
+  background: "#000000"   # 纯黑
+  text: "#00FF00"         # 绿色文字
+  dim: "#004400"          # 暗绿
+  success: "#00FF00"      # 成功
+  warning: "#88FF00"      # 警告
+  error: "#FF0000"        # 错误红
+styles:
+  hitl:
+    icon: "⚡"
+    glow: true
+  task_complete:
+    icon: "✓"
+    glow: false
+  error:
+    icon: "✗"
+    blink: true
+effects:
+  enable_glow: true
+  enable_blink: true
+  border_style: "single"

@@ -1,0 +1,27 @@
+# Solarized Dark 主题
+name: Solarized Dark
+author: Claude
+colors:
+  primary: "#268BD2"      # 蓝色
+  secondary: "#D33682"    # 紫红
+  accent: "#B58900"       # 黄色
+  background: "#002B36"   # 深青
+  text: "#FDF6E3"         # 米白
+  dim: "#657B83"          # 灰色
+  success: "#859900"      # 成功绿
+  warning: "#B58900"      # 警告黄
+  error: "#DC322F"        # 错误红
+styles:
+  hitl:
+    icon: "⚡"
+    glow: false
+  task_complete:
+    icon: "✓"
+    glow: false
+  error:
+    icon: "✗"
+    blink: true
+effects:
+  enable_glow: false
+  enable_blink: true
+  border_style: "single"

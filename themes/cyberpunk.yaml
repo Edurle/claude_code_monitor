@@ -1,0 +1,28 @@
+# Cyberpunk 2077 主题
+name: Cyberpunk 2077
+author: Claude
+colors:
+  primary: "#FF00FF"      # 霓虹粉
+  secondary: "#00FFFF"    # 电光蓝
+  accent: "#FFFF00"       # 警告黄
+  background: "#0D0D0D"   # 深黑
+  text: "#FFFFFF"         # 白色
+  dim: "#666666"          # 暗淡
+  success: "#00FF88"      # 成功绿
+  warning: "#FFAA00"      # 警告橙
+  error: "#FF0044"        # 错误红
+styles:
+  hitl:
+    icon: "⚡"
+    glow: true
+    blink: true
+  task_complete:
+    icon: "✓"
+    glow: true
+  error:
+    icon: "✗"
+    blink: true
+effects:
+  enable_glow: true
+  enable_blink: true
+  border_style: "double"
