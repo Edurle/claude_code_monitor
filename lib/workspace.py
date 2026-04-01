@@ -105,10 +105,10 @@ def generate_tmux_commands(config: Dict[str, Any], session_name: str = 'monitor'
 
         if i == 0:
             # 第一个窗口：创建 session
-            commands.append(f'tmux new-session -d -s {session_name} -n {win_name} -c "{root}"')
+            commands.append(f'command tmux new-session -d -s {session_name} -n {win_name} -c "{root}"')
         else:
-            # 后续窗口
-            commands.append(f'tmux new-window -t {session_name} -n {win_name} -c "{root}"')
+            # 后续窗口：追加到末尾（-a 参数避免索引冲突）
+            commands.append(f'command tmux new-window -a -t {session_name} -n {win_name} -c "{root}"')
 
         # 第一个 pane 的命令
         first_pane = (panes[0] or {}) if panes else {}
@@ -116,25 +116,33 @@ def generate_tmux_commands(config: Dict[str, Any], session_name: str = 'monitor'
         if first_cmd:
             # 转义引号
             escaped_cmd = first_cmd.replace('"', '\\"')
-            commands.append(f'tmux send-keys -t {session_name}:{win_name} "{escaped_cmd}" Enter')
+            commands.append(f'command tmux send-keys -t {session_name}:{win_name} "{escaped_cmd}" Enter')
 
         # 创建额外 panes
         for j, pane in enumerate(panes[1:], 1):
             pane = pane or {}  # 处理 None
             pane_root = expand_path(pane.get('root', root))
-            commands.append(f'tmux split-window -t {session_name}:{win_name} -c "{pane_root}"')
+
+            # 分割方向：h=水平(左右)，v=垂直(上下)
+            split_flag = '-h' if pane.get('split', 'h') == 'h' else '-v'
+
+            # 分割大小：百分比
+            size = pane.get('size')
+            size_arg = f'-p {size}' if size else ''
+
+            commands.append(f'command tmux split-window {split_flag} {size_arg} -t {session_name}:{win_name} -c "{pane_root}"')
             pane_cmd = pane.get('cmd', '')
             if pane_cmd:
                 escaped_cmd = pane_cmd.replace('"', '\\"')
-                commands.append(f'tmux send-keys -t {session_name}:{win_name}.{j} "{escaped_cmd}" Enter')
+                commands.append(f'command tmux send-keys -t {session_name}:{win_name}.{j} "{escaped_cmd}" Enter')
 
         # 设置布局
         layout = win.get('layout')
         if layout:
-            commands.append(f'tmux select-layout -t {session_name}:{win_name} {layout}')
+            commands.append(f'command tmux select-layout -t {session_name}:{win_name} {layout}')
 
     # 选择第一个窗口
-    commands.append(f'tmux select-window -t {session_name}:0')
+    commands.append(f'command tmux select-window -t {session_name}:0')
 
     return commands
 
