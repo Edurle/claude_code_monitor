@@ -164,17 +164,22 @@ class ParticleEmitter:
         self.particles = [p for p in self.particles if p.update(delta_time)]
 
     def render(self, bounds: Optional[Tuple[int, int, int, int]] = None) -> List[Tuple[int, int, str, int]]:
-        """渲染粒子，返回 [(row, col, char, color)] 列表"""
+        """渲染粒子，返回 [(row, col, char, color)] 列表
+
+        粒子坐标系：x = 列方向, y = 行方向
+        返回格式：(row=y_int, col=x_int, char, color)
+        """
         results = []
 
         for particle in self.particles:
-            # 转换为整数坐标
-            px, py = int(round(particle.x)), int(round(particle.y))
+            # 转换为整数坐标 (row, col)
+            row = int(round(particle.y))
+            col = int(round(particle.x))
 
             # 边界检查
             if bounds:
                 min_y, min_x, max_y, max_x = bounds
-                if not (min_y <= py < max_y and min_x <= px < max_x):
+                if not (min_y <= row < max_y and min_x <= col < max_x):
                     continue
 
             # 根据透明度选择字符
@@ -185,7 +190,7 @@ class ParticleEmitter:
             else:
                 char = "·"
 
-            results.append((py, px, char, particle.color))
+            results.append((row, col, char, particle.color))
 
         return results
 

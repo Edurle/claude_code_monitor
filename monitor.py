@@ -385,6 +385,23 @@ class HitlMonitor:
         # 绘制宠物区域
         self._draw_pet_area(h - 8)
 
+        # 渲染粒子效果
+        bounds = (0, 0, h, w)
+        particle_results = self._trigger_hook("render_particles", bounds)
+        if particle_results:
+            for result in particle_results:
+                if isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, tuple) and len(item) >= 3:
+                            p_row, p_col = item[0], item[1]
+                            char = item[2]
+                            attr = item[3] if len(item) > 3 else 0
+                            if 0 <= p_row < h and 0 <= p_col < w:
+                                try:
+                                    self.addstr(p_row, p_col, str(char), attr)
+                                except curses.error:
+                                    pass
+
         # 状态消息
         if self.status_msg:
             self.addstr(h - 3, 2, self.status_msg, curses.color_pair(2))
@@ -597,6 +614,11 @@ class HitlMonitor:
     def show_achievement_unlocked(self, achievement: Achievement):
         """显示成就解锁动画"""
         import curses
+
+        # 触发成就解锁钩子（用于粒子效果等）
+        self._trigger_hook("on_achievement_unlock", achievement.id, {
+            "name": achievement.name, "desc": achievement.desc
+        })
 
         h, w = self.get_effective_size()
 
