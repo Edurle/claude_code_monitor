@@ -47,3 +47,12 @@ plugins:
         ambient:
           enabled: false
           type: stars    # stars / snow / matrix
+
+  # 边框粒子插件
+  builtin.border_particles:
+    enabled: true
+    priority: 25
+    settings:
+      style: sparkle              # sparkle / flame_trail / matrix / neon_glow
+      emit_rate_multiplier: 1.0   # 发射速率倍率
+      particle_density: 1.0       # 粒子密度倍率
