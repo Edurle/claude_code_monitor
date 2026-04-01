@@ -163,6 +163,18 @@ class HitlMonitor:
             return self.plugin_manager.hook_registry.execute_first(hook_name, *args, **kwargs)
         return None
 
+    def _get_achievement_plugin(self):
+        """获取成就插件实例"""
+        if self._use_plugins and self.plugin_manager:
+            return self.plugin_manager.get_plugin("builtin.achievements")
+        return None
+
+    def _get_pet_plugin(self):
+        """获取宠物插件实例"""
+        if self._use_plugins and self.plugin_manager:
+            return self.plugin_manager.get_plugin("builtin.pet")
+        return None
+
     def _init_curses(self):
         """初始化 curses 设置"""
         curses.curs_set(0)
@@ -354,6 +366,31 @@ class HitlMonitor:
         h, w = self.stdscr.getmaxyx()
         pet_width = 35
 
+        # 优先使用宠物插件
+        pet_plugin = self._get_pet_plugin()
+        if pet_plugin:
+            # 通过插件钩子获取渲染数据
+            results = self._trigger_hook("render_pet_area", start_row, pet_width)
+            if results:
+                for item in results:
+                    if isinstance(item, tuple) and len(item) >= 3:
+                        row, col, text = item[0], item[1], item[2]
+                        attr = item[3] if len(item) > 3 else 0
+                        self.addstr(row, col, text, attr)
+
+            # 显示成就进度（右侧）
+            achievement_plugin = self._get_achievement_plugin()
+            if achievement_plugin:
+                unlocked = achievement_plugin.unlocked_count
+                total = achievement_plugin.total_count
+                progress_text = f"🏆 成就: {unlocked}/{total}"
+                self.addstr(start_row, w - len(progress_text) - 3, progress_text, curses.color_pair(3))
+            return
+
+        # 回退到旧版宠物逻辑
+        if not self.pet:
+            return
+
         # 宠物边框
         self.addstr(start_row, 2, "┌" + "─" * (pet_width - 2) + "┐", curses.A_DIM)
 
@@ -397,28 +434,55 @@ class HitlMonitor:
         self.addstr(0, 0, "═" * w, curses.color_pair(3))
         self.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
 
-        # 成就列表
-        all_achievements = self.achievement_manager.get_all()
         row = 2
 
-        for i, (achievement, unlocked) in enumerate(all_achievements):
-            if row >= h - 4:
-                break
+        # 优先使用成就插件
+        achievement_plugin = self._get_achievement_plugin()
+        if achievement_plugin:
+            all_achievements = achievement_plugin.get_all()
+            stats = achievement_plugin.stats
 
-            prefix = "✓ " if unlocked else "○ "
-            color = curses.color_pair(3) if unlocked else curses.A_DIM
+            for i, (achievement, unlocked) in enumerate(all_achievements):
+                if row >= h - 4:
+                    break
 
-            self.addstr(row, 2, f"{prefix}{achievement.icon} {achievement.name}", color | (curses.A_BOLD if unlocked else 0))
-            row += 1
-            self.addstr(row, 6, achievement.desc, curses.A_DIM)
-            row += 2
+                prefix = "✓ " if unlocked else "○ "
+                color = curses.color_pair(3) if unlocked else curses.A_DIM
 
-        # 统计
-        stats = self.achievement_manager.stats
-        stats_row = h - 5
-        self.addstr(stats_row, 2, "─" * 40, curses.A_DIM)
-        self.addstr(stats_row + 1, 2, f"📊 统计: 总任务 {stats.total_tasks} | HITL {stats.hitl_count} | 错误 {stats.error_count}", curses.color_pair(5))
-        self.addstr(stats_row + 2, 2, f"📅 连续 {stats.consecutive_days} 天 | 今日 {stats.tasks_today} 个任务", curses.color_pair(5))
+                self.addstr(row, 2, f"{prefix}{achievement.icon} {achievement.name}", color | (curses.A_BOLD if unlocked else 0))
+                row += 1
+                self.addstr(row, 6, achievement.desc, curses.A_DIM)
+                row += 2
+
+            # 统计
+            stats_row = h - 5
+            self.addstr(stats_row, 2, "─" * 40, curses.A_DIM)
+            self.addstr(stats_row + 1, 2, f"📊 统计: 总任务 {stats.total_tasks} | HITL {stats.hitl_count} | 错误 {stats.error_count}", curses.color_pair(5))
+            self.addstr(stats_row + 2, 2, f"📅 连续 {stats.consecutive_days} 天 | 今日 {stats.tasks_today} 个任务", curses.color_pair(5))
+        elif self.achievement_manager:
+            # 回退到旧版逻辑
+            all_achievements = self.achievement_manager.get_all()
+
+            for i, (achievement, unlocked) in enumerate(all_achievements):
+                if row >= h - 4:
+                    break
+
+                prefix = "✓ " if unlocked else "○ "
+                color = curses.color_pair(3) if unlocked else curses.A_DIM
+
+                self.addstr(row, 2, f"{prefix}{achievement.icon} {achievement.name}", color | (curses.A_BOLD if unlocked else 0))
+                row += 1
+                self.addstr(row, 6, achievement.desc, curses.A_DIM)
+                row += 2
+
+            # 统计
+            stats = self.achievement_manager.stats
+            stats_row = h - 5
+            self.addstr(stats_row, 2, "─" * 40, curses.A_DIM)
+            self.addstr(stats_row + 1, 2, f"📊 统计: 总任务 {stats.total_tasks} | HITL {stats.hitl_count} | 错误 {stats.error_count}", curses.color_pair(5))
+            self.addstr(stats_row + 2, 2, f"📅 连续 {stats.consecutive_days} 天 | 今日 {stats.tasks_today} 个任务", curses.color_pair(5))
+        else:
+            self.addstr(row, 2, "成就系统未加载", curses.A_DIM)
 
         # 提示
         self.addstr(h - 1, 2, "[A/ESC] 返回队列", curses.A_DIM)
@@ -542,15 +606,27 @@ class HitlMonitor:
 
         # 宠物互动
         if key == ord("p") or key == ord("P"):
-            response = self.pet.on_pet()
-            self.status_msg = f"宠物说: {response}"
-            self.status_clear_at = time.time() + 2
+            pet_plugin = self._get_pet_plugin()
+            if pet_plugin:
+                pet_plugin.interact()
+                self.status_msg = "宠物很开心~"
+                self.status_clear_at = time.time() + 2
+            elif self.pet:
+                response = self.pet.on_pet()
+                self.status_msg = f"宠物说: {response}"
+                self.status_clear_at = time.time() + 2
             return True
 
         if key == ord("f") or key == ord("F"):
-            response = self.pet.on_feed()
-            self.status_msg = f"宠物说: {response}"
-            self.status_clear_at = time.time() + 2
+            pet_plugin = self._get_pet_plugin()
+            if pet_plugin:
+                pet_plugin.interact()
+                self.status_msg = "宠物吃得很开心~"
+                self.status_clear_at = time.time() + 2
+            elif self.pet:
+                response = self.pet.on_feed()
+                self.status_msg = f"宠物说: {response}"
+                self.status_clear_at = time.time() + 2
             return True
 
         # 队列操作（仅在队列视图）
@@ -570,32 +646,59 @@ class HitlMonitor:
                     # 记录事件
                     event_type = entry.get("type", "hitl")
                     project = entry.get("project", "")
-                    self.achievement_manager.record_task(event_type, project)
+
+                    # 优先使用插件
+                    achievement_plugin = self._get_achievement_plugin()
+                    if achievement_plugin:
+                        achievement_plugin._record_task(event_type, project)
+                        newly_unlocked = achievement_plugin._check_achievements()
+                        if newly_unlocked:
+                            from plugins.builtin.achievements.plugin import ACHIEVEMENTS
+                            for aid in newly_unlocked:
+                                achievement = ACHIEVEMENTS.get(aid)
+                                if achievement:
+                                    self.show_achievement_unlocked(achievement)
+                    elif self.achievement_manager:
+                        self.achievement_manager.record_task(event_type, project)
+                        newly_unlocked = self.achievement_manager.check_achievements()
+                        if newly_unlocked:
+                            from lib.achievements import ACHIEVEMENTS
+                            for aid in newly_unlocked:
+                                self.show_achievement_unlocked(ACHIEVEMENTS[aid])
+                            # 更新宠物进化
+                            if self.pet:
+                                self.pet.update_evolution(self.achievement_manager.unlocked_count)
+
                     self.stats_manager.record_event(event_type, project)
 
-                    # 检查成就
-                    newly_unlocked = self.achievement_manager.check_achievements()
-                    if newly_unlocked:
-                        from lib.achievements import ACHIEVEMENTS
-                        for aid in newly_unlocked:
-                            self.show_achievement_unlocked(ACHIEVEMENTS[aid])
-                        # 更新宠物进化
-                        self.pet.update_evolution(self.achievement_manager.unlocked_count)
+                    # 通知宠物插件
+                    pet_plugin = self._get_pet_plugin()
+                    if pet_plugin:
+                        self._trigger_hook("on_task_complete", entry, {})
+                    elif self.pet:
+                        self.pet.on_task_complete()
 
-                    self.pet.on_task_complete()
                     self.status_msg = "已跳转并处理任务"
                     self.status_clear_at = time.time() + 2
 
         elif key == ord("d") or key == ord("D"):
             if entries:
                 self.pop_first()
-                self.pet.on_task_discard()
+                pet_plugin = self._get_pet_plugin()
+                if pet_plugin:
+                    pass  # 插件暂无 discard 钩子
+                elif self.pet:
+                    self.pet.on_task_discard()
                 self.status_msg = "已丢弃队首条目"
                 self.status_clear_at = time.time() + 2
 
         elif key == ord("c") or key == ord("C"):
             self.clear_queue()
-            self.pet.on_queue_clear()
+            pet_plugin = self._get_pet_plugin()
+            if pet_plugin:
+                pass  # 插件暂无 clear 钩子
+            elif self.pet:
+                self.pet.on_queue_clear()
             self.status_msg = "队列已清空"
             self.status_clear_at = time.time() + 2
 
@@ -610,13 +713,14 @@ class HitlMonitor:
 
             # 检测队列变化
             current_length = len(entries)
-            if current_length > self.last_queue_length:
+            if current_length > self.last_queue_length and self.pet:
                 self.pet.on_new_task()
             self.last_queue_length = current_length
 
             # 更新活跃项目数
             projects = set(e.get("project", "") for e in entries if e.get("project"))
-            self.achievement_manager.set_active_projects(len(projects))
+            if self.achievement_manager:
+                self.achievement_manager.set_active_projects(len(projects))
 
             # 绘制
             self.stdscr.erase()
