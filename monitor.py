@@ -51,6 +51,19 @@ QUEUE_FILE = Path(os.environ.get("CLAUDE_TMUX_QUEUE", Path.home() / ".claude-tmu
 MONITOR_SESSION = os.environ.get("CLAUDE_TMUX_MONITOR_SESSION", "monitor")
 REFRESH = 1  # 秒
 
+
+def display_width(s: str) -> int:
+    """计算字符串显示宽度（考虑全角字符和 emoji）"""
+    width = 0
+    for c in s:
+        code = ord(c)
+        # 中文字符或 emoji（宽字符）
+        if '\u4e00' <= c <= '\u9fff' or code > 0x1F00:
+            width += 2
+        else:
+            width += 1
+    return width
+
 # 视图模式
 VIEW_QUEUE = "queue"
 VIEW_ACHIEVEMENTS = "achievements"
@@ -59,6 +72,8 @@ VIEW_STATS = "stats"
 
 class HitlMonitor:
     """HITL 监控器主类"""
+
+    MARGIN = 2  # 屏幕边距（行/列）- 30px 约等于 2 个字符宽度
 
     def __init__(self, stdscr):
         self.stdscr = stdscr
@@ -265,13 +280,22 @@ class HitlMonitor:
         return None
 
     def addstr(self, row: int, col: int, text: str, attr=0):
-        """安全添加字符串"""
+        """安全添加字符串（自动应用边距）"""
         try:
             h, w = self.stdscr.getmaxyx()
-            if row < h and col < w:
-                self.stdscr.addstr(row, col, text[:w - col], attr)
+            # 应用边距
+            actual_row = row + self.MARGIN
+            actual_col = col + self.MARGIN
+            if actual_row < h - self.MARGIN and actual_col < w - self.MARGIN:
+                effective_width = w - self.MARGIN - actual_col
+                self.stdscr.addstr(actual_row, actual_col, text[:effective_width], attr)
         except curses.error:
             pass
+
+    def get_effective_size(self) -> Tuple[int, int]:
+        """获取有效显示区域尺寸 (height, width)"""
+        h, w = self.stdscr.getmaxyx()
+        return max(h - 2 * self.MARGIN, 10), max(w - 2 * self.MARGIN, 20)
 
     def draw_box(self, y: int, x: int, h: int, w: int, title: str = ""):
         """绘制边框"""
@@ -294,7 +318,7 @@ class HitlMonitor:
 
     def draw_queue_view(self, entries: List[dict]):
         """绘制队列视图"""
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.get_effective_size()
         row = 0
 
         import curses
@@ -363,7 +387,7 @@ class HitlMonitor:
         """绘制宠物区域"""
         import curses
 
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.get_effective_size()
         pet_width = 35
 
         # 优先使用宠物插件
@@ -373,7 +397,14 @@ class HitlMonitor:
             results = self._trigger_hook("render_pet_area", start_row, pet_width)
             if results:
                 for item in results:
-                    if isinstance(item, tuple) and len(item) >= 3:
+                    # item 可能是 List[Tuple] 或 Tuple（钩子返回嵌套列表）
+                    if isinstance(item, list):
+                        for sub_item in item:
+                            if isinstance(sub_item, tuple) and len(sub_item) >= 3:
+                                row, col, text = sub_item[0], sub_item[1], sub_item[2]
+                                attr = sub_item[3] if len(sub_item) > 3 else 0
+                                self.addstr(row, col, text, attr)
+                    elif isinstance(item, tuple) and len(item) >= 3:
                         row, col, text = item[0], item[1], item[2]
                         attr = item[3] if len(item) > 3 else 0
                         self.addstr(row, col, text, attr)
@@ -384,7 +415,13 @@ class HitlMonitor:
                 unlocked = achievement_plugin.unlocked_count
                 total = achievement_plugin.total_count
                 progress_text = f"🏆 成就: {unlocked}/{total}"
-                self.addstr(start_row, w - len(progress_text) - 3, progress_text, curses.color_pair(3))
+                self.addstr(start_row, w - display_width(progress_text) - 3, progress_text, curses.color_pair(3))
+
+                # 显示进化进度
+                next_evo, current, needed = pet_plugin.get_next_evolution_progress()
+                if next_evo != "已满级":
+                    evo_text = f"进化: {next_evo} ({current}/{needed})"
+                    self.addstr(start_row + 1, w - display_width(evo_text) - 3, evo_text, curses.A_DIM)
             return
 
         # 回退到旧版宠物逻辑
@@ -416,17 +453,17 @@ class HitlMonitor:
         unlocked = self.achievement_manager.unlocked_count
         total = self.achievement_manager.total_count
         progress_text = f"🏆 成就: {unlocked}/{total}"
-        self.addstr(start_row, w - len(progress_text) - 3, progress_text, curses.color_pair(3))
+        self.addstr(start_row, w - display_width(progress_text) - 3, progress_text, curses.color_pair(3))
 
         # 进化进度
         next_evo, current, needed = self.pet.get_next_evolution_progress(unlocked)
         if next_evo != "已满级":
             evo_text = f"进化: {next_evo} ({current}/{needed})"
-            self.addstr(start_row + 1, w - len(evo_text) - 3, evo_text, curses.A_DIM)
+            self.addstr(start_row + 1, w - display_width(evo_text) - 3, evo_text, curses.A_DIM)
 
     def draw_achievements_view(self):
         """绘制成就视图"""
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.get_effective_size()
         import curses
 
         # 标题
@@ -489,7 +526,7 @@ class HitlMonitor:
 
     def draw_stats_view(self):
         """绘制统计视图"""
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.get_effective_size()
         import curses
 
         # 标题
@@ -538,7 +575,7 @@ class HitlMonitor:
         """显示成就解锁动画"""
         import curses
 
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.get_effective_size()
 
         # 动画框
         box_h, box_w = 7, 44
@@ -556,11 +593,14 @@ class HitlMonitor:
         self.addstr(box_y + 1, box_x + 2, " " * (box_w - 4), curses.A_REVERSE)
         self.addstr(box_y + 1, box_x + (box_w - 26) // 2, "🎉  ACHIEVEMENT UNLOCKED!  🎉", curses.A_REVERSE | curses.A_BOLD)
 
-        self.addstr(box_y + 3, box_x + (box_w - len(achievement.icon) * 2 - len(achievement.name) - 3) // 2,
-                    f"{achievement.icon} {achievement.name} {achievement.icon}", curses.color_pair(3) | curses.A_BOLD)
+        # 使用 display_width 计算居中位置
+        achievement_text = f"{achievement.icon} {achievement.name} {achievement.icon}"
+        self.addstr(box_y + 3, box_x + (box_w - display_width(achievement_text)) // 2,
+                    achievement_text, curses.color_pair(3) | curses.A_BOLD)
 
-        self.addstr(box_y + 5, box_x + (box_w - len(achievement.desc) - 2) // 2,
-                    f'"{achievement.desc}"', curses.color_pair(5))
+        desc_text = f'"{achievement.desc}"'
+        self.addstr(box_y + 5, box_x + (box_w - display_width(desc_text)) // 2,
+                    desc_text, curses.color_pair(5))
 
         self.stdscr.refresh()
         time.sleep(2)  # 显示2秒
@@ -713,8 +753,13 @@ class HitlMonitor:
 
             # 检测队列变化
             current_length = len(entries)
-            if current_length > self.last_queue_length and self.pet:
-                self.pet.on_new_task()
+            if current_length > self.last_queue_length:
+                # 通知独立版本
+                if self.pet:
+                    self.pet.on_new_task()
+                # 通知插件版本
+                if self._use_plugins and entries:
+                    self._trigger_hook("on_new_task", entries[0])
             self.last_queue_length = current_length
 
             # 更新活跃项目数

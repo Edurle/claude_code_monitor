@@ -1,0 +1,30 @@
+{
+  "unlocked": [
+    "first_step",
+    "multitasker"
+  ],
+  "stats": {
+    "total_tasks": 20,
+    "hitl_count": 6,
+    "hitl_count_5min": 2,
+    "error_count": 0,
+    "error_free_hours": 0.0,
+    "active_projects": 3,
+    "consecutive_days": 1,
+    "last_task_time": 1775018571.8363008,
+    "tasks_today": 20,
+    "current_hour": 12,
+    "first_task_time_today": 0.0,
+    "last_session_date": "2026-04-01"
+  },
+  "history": [
+    {
+      "id": "first_step",
+      "unlocked_at": "2026-04-01 11:36:39"
+    },
+    {
+      "id": "multitasker",
+      "unlocked_at": "2026-04-01 11:56:21"
+    }
+  ]
+}
