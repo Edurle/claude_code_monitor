@@ -162,6 +162,8 @@ class HitlMonitor:
         if self.plugin_manager:
             return self.plugin_manager.hook_registry.execute_first(hook_name, *args, **kwargs)
         return None
+
+    def _init_curses(self):
         """初始化 curses 设置"""
         curses.curs_set(0)
         curses.use_default_colors()

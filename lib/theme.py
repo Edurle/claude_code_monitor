@@ -239,18 +239,35 @@ class ThemeManager:
 
         import curses
 
-        # 初始化颜色（索引 16-255 可自定义）
-        color_idx = 16
         pair_idx = 1
 
-        for name, hex_color in color_map.items():
-            # 初始化颜色
-            curses.init_color(color_idx, *self._hex_to_curses_rgb(hex_color))
-            # 创建颜色对（前景色，背景透明）
-            curses.init_pair(pair_idx, color_idx, -1)
-            self._curses_colors[name] = curses.color_pair(pair_idx)
-            color_idx += 1
-            pair_idx += 1
+        # 检测终端是否支持自定义颜色
+        if curses.can_change_color():
+            # 支持扩展颜色：使用自定义颜色
+            color_idx = 16
+            for name, hex_color in color_map.items():
+                curses.init_color(color_idx, *self._hex_to_curses_rgb(hex_color))
+                curses.init_pair(pair_idx, color_idx, -1)
+                self._curses_colors[name] = curses.color_pair(pair_idx)
+                color_idx += 1
+                pair_idx += 1
+        else:
+            # 不支持扩展颜色：使用预设 256 色索引作为 fallback
+            fallback_colors = {
+                "primary": 39,      # 蓝色
+                "secondary": 244,   # 灰色
+                "accent": 208,      # 橙色
+                "text": 252,        # 白色
+                "dim": 240,         # 暗灰
+                "success": 82,      # 绿色
+                "warning": 214,     # 黄色
+                "error": 196,       # 红色
+            }
+            for name in color_map.keys():
+                if name in fallback_colors:
+                    curses.init_pair(pair_idx, fallback_colors[name], -1)
+                    self._curses_colors[name] = curses.color_pair(pair_idx)
+                    pair_idx += 1
 
         return self._curses_colors
 

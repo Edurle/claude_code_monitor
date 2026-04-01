@@ -10,17 +10,3 @@ windows:
     root: ~/
     panes:
       - cmd: python3 ~/claude-tmux/monitor.py
-
-  # 窗口2: 主工作区
-  - name: main
-    root: ~/projects
-    layout: even-horizontal
-    panes:
-      - cmd: ls -la
-      -  # 空pane，等待输入
-
-  # 窗口3: Git/Shell
-  - name: shell
-    root: ~/
-    panes:
-      - cmd: clear

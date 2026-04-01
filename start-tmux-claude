@@ -120,7 +120,7 @@ if ! command -v tmux &>/dev/null; then
 fi
 
 # ── 3. 检查现有会话 ─────────────────────────────────────────────────────────
-sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null || true)
+sessions=$(command tmux list-sessions -F "#{session_name}" 2>/dev/null || true)
 if [[ -n "$sessions" ]]; then
     if [[ "$FORCE" != true ]]; then
         echo -e "${YELLOW}发现现有 tmux 会话:${RESET}"
@@ -136,7 +136,7 @@ if [[ -n "$sessions" ]]; then
     fi
     echo -e "${YELLOW}关闭现有会话...${RESET}"
     while IFS= read -r s; do
-        tmux kill-session -t "$s" 2>/dev/null || true
+        command tmux kill-session -t "$s" 2>/dev/null || true
     done <<< "$sessions"
 fi
 
