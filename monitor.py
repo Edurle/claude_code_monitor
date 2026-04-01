@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-# monitor.py — Claude Code HITL 监控界面 (增强版)
+# monitor.py — Claude Code HITL 监控界面 (插件化版)
 # 依赖: Python 3.6+ 标准库，无需额外安装
 #
 # 新功能:
+# - 🔌 插件系统
+# - 🎬 动画引擎（最高20fps）
+# - ✨ 粒子效果
 # - 🌈 动态主题引擎
-# - 🏆 成就系统
-# - 🐕 电子宠物助手
+# - 🏆 成就系统（插件）
+# - 🐕 电子宠物助手（插件）
 
 import curses
 import json
@@ -13,13 +16,35 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 # 导入自定义模块
 from lib.theme import ThemeManager, Theme
-from lib.achievements import AchievementManager, Achievement
-from lib.pet import Pet, PetState
 from lib.stats import StatsManager
+
+# 插件系统（可选导入）
+try:
+    from lib.plugins.manager import PluginManager
+    from lib.plugins.core import PluginContext
+    from lib.animation.engine import AnimationEngine, get_builtin_animations
+    from lib.particles.system import ParticleSystem
+    PLUGINS_AVAILABLE = True
+except ImportError as e:
+    import sys
+    print(f"Plugin system unavailable: {e}", file=sys.stderr)
+    PLUGINS_AVAILABLE = False
+    PluginManager = None
+    PluginContext = None
+    AnimationEngine = None
+    ParticleSystem = None
+
+# 兼容旧模块（作为后备）
+try:
+    from lib.achievements import AchievementManager, Achievement
+    from lib.pet import Pet, PetState
+    LEGACY_MODULES = True
+except ImportError:
+    LEGACY_MODULES = False
 
 # 配置
 QUEUE_FILE = Path(os.environ.get("CLAUDE_TMUX_QUEUE", Path.home() / ".claude-tmux-queue.jsonl"))
@@ -40,12 +65,6 @@ class HitlMonitor:
         self.status_msg = ""
         self.status_clear_at = 0
 
-        # 初始化模块
-        self.theme_manager = ThemeManager()
-        self.achievement_manager = AchievementManager()
-        self.stats_manager = StatsManager()
-        self.pet = Pet(achievement_count=self.achievement_manager.unlocked_count)
-
         # 视图状态
         self.current_view = VIEW_QUEUE
         self.achievement_scroll = 0
@@ -53,10 +72,96 @@ class HitlMonitor:
         # 队列
         self.last_queue_length = 0
 
+        # 初始化核心模块
+        self.theme_manager = ThemeManager()
+        self.stats_manager = StatsManager()
+
+        # 初始化插件系统
+        self._init_plugins()
+
+        # 初始化兼容模块（如果插件不可用）
+        if not self._use_plugins and LEGACY_MODULES:
+            self.achievement_manager = AchievementManager()
+            self.pet = Pet(achievement_count=self.achievement_manager.unlocked_count)
+        else:
+            self.achievement_manager = None
+            self.pet = None
+
         # 初始化 curses
         self._init_curses()
 
-    def _init_curses(self):
+    def _init_plugins(self):
+        """初始化插件系统"""
+        self._use_plugins = False
+        self.plugin_manager = None
+        self.animation_engine = None
+        self.particle_system = None
+
+        if not PLUGINS_AVAILABLE or PluginManager is None:
+            return
+
+        try:
+            # 路径设置
+            base_dir = Path(__file__).parent
+            plugin_dir = base_dir / "plugins"
+            config_path = base_dir / "config" / "plugins.yaml"
+            data_dir = base_dir / "data"
+
+            # 创建核心组件
+            if AnimationEngine is not None:
+                self.animation_engine = AnimationEngine()
+                # 注册内置动画
+                for anim_id, anim in get_builtin_animations().items():
+                    self.animation_engine.register_animation(anim)
+
+            if ParticleSystem is not None:
+                self.particle_system = ParticleSystem()
+
+            # 创建插件管理器
+            self.plugin_manager = PluginManager(plugin_dir, config_path)
+
+            # 创建插件上下文
+            if PluginContext is not None:
+                context = PluginContext(
+                    stdscr=None,  # 稍后设置
+                    theme_manager=self.theme_manager,
+                    data_dir=str(data_dir),
+                    config={},
+                    render_buffer=None,
+                    animation_engine=self.animation_engine,
+                    particle_system=self.particle_system,
+                    monitor=self,
+                )
+                self.plugin_manager.set_context(context)
+
+            # 加载配置并发现插件
+            self.plugin_manager.load_config()
+            discovered = self.plugin_manager.discover_plugins()
+
+            # 加载并启动所有已启用的插件
+            for plugin_id in discovered:
+                self.plugin_manager.load_plugin(plugin_id)
+
+            self.plugin_manager.start_all()
+            self._use_plugins = True
+
+        except Exception as e:
+            # 插件系统初始化失败，使用兼容模式
+            import sys
+            print(f"Warning: Plugin system failed: {e}", file=sys.stderr)
+            self._use_plugins = False
+
+    def _trigger_hook(self, hook_name: str, *args, **kwargs):
+        """触发钩子"""
+        if self.plugin_manager:
+            return self.plugin_manager.hook_registry.execute(hook_name, *args, **kwargs)
+        return []
+
+    def _trigger_hook_first(self, hook_name: str, *args, **kwargs):
+        """触发钩子并返回第一个结果"""
+        if self.plugin_manager:
+            return self.plugin_manager.hook_registry.execute_first(hook_name, *args, **kwargs)
+        return None
         """初始化 curses 设置"""
         curses.curs_set(0)
         curses.use_default_colors()

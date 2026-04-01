@@ -1,0 +1,49 @@
+# 插件系统配置
+# Claude Code × tmux HITL Monitor
+
+version: "1.0"
+
+# 全局设置
+global:
+  hot_reload: true      # 启用热重载
+  auto_start: true      # 自动启动已启用的插件
+  log_level: INFO       # 日志级别
+
+# 插件配置
+plugins:
+  # 宠物插件
+  builtin.pet:
+    enabled: true
+    priority: 50
+    settings:
+      pet_type: bunny           # bunny / fox / dragon
+      enable_animations: true
+      animation_fps: 10
+      interaction_cooldown: 2.0
+      mood_text_duration: 3.0
+
+  # 成就插件
+  builtin.achievements:
+    enabled: true
+    priority: 75
+    settings:
+      show_popup: true
+      popup_duration: 2.5
+      sound: false
+
+  # 粒子效果插件
+  builtin.particle_fx:
+    enabled: true
+    priority: 30
+    settings:
+      max_particles: 200
+      effects:
+        celebration:
+          enabled: true
+          trigger_on_achievement: true
+        sparkle:
+          enabled: true
+          trigger_on_task: true
+        ambient:
+          enabled: false
+          type: stars    # stars / snow / matrix
