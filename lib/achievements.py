@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 数据存储路径
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -206,7 +206,7 @@ class AchievementManager:
 
         # 更新连续天数
         if self._stats.last_session_date != today:
-            yesterday = datetime.now().replace(day=datetime.now().day - 1).strftime("%Y-%m-%d")
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
             if self._stats.last_session_date == yesterday:
                 self._stats.consecutive_days += 1
             else:
