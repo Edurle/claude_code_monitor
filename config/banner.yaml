@@ -1,0 +1,9 @@
+# Banner 配置 - ASCII art 字符画头部
+# Claude Code × tmux HITL Monitor
+
+banner:
+  enabled: true
+  text: "Claude Home"
+  font: "slant"           # slant | block | mini | standard
+  color: "primary"        # primary | secondary | accent
+  alignment: "center"     # left | center | right

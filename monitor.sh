@@ -54,6 +54,47 @@ clear_queue() {
     > "$QUEUE_FILE" 2>/dev/null || true
 }
 
+# Banner 配置加载 ─────────────────────────────────────────────────────────────
+
+load_banner_config() {
+    local config_file
+    config_file="$(cd "$(dirname "$0")" && pwd)/config/banner.yaml"
+    BANNER_ENABLED="true"
+    BANNER_TEXT="Claude Home"
+    if [[ -f "$config_file" ]]; then
+        local val
+        val=$(grep -E "^\s+enabled:" "$config_file" 2>/dev/null | head -1 | sed 's/.*: *//' | tr -d ' "')
+        [[ -n "$val" ]] && BANNER_ENABLED="$val"
+        val=$(grep -E "^\s+text:" "$config_file" 2>/dev/null | head -1 | sed 's/.*: *//' | tr -d '"')
+        [[ -n "$val" ]] && BANNER_TEXT="$val"
+    fi
+}
+
+render_banner() {
+    local text="$1"
+    case "$text" in
+        "Claude Home")
+            printf "${BOLD}${CYAN}   ██████╗██╗      █████╗ ██╗   ██╗███████╗██████╗  ██████╗ ███╗   ██╗ █████╗ ██╗  ████████╗\n"
+            printf "${BOLD}${CYAN}  ██╔════╝██║     ██╔══██╗██║   ██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║██╔══██╗██║  ╚══██╔══╝\n"
+            printf "${BOLD}${CYAN}  ██║     ██║     ███████║██║   ██║█████╗  ██████╔╝██║   ██║██╔██╗ ██║███████║██║     ██║   \n"
+            printf "${BOLD}${CYAN}  ██║     ██║     ██╔══██║██║   ██║██╔══╝  ██╔══██╗██║   ██║██║╚██╗██║██╔══██║██║     ██║   \n"
+            printf "${BOLD}${CYAN}  ╚██████╗███████╗██║  ██║╚██████╔╝███████╗██║  ██║╚██████╔╝██║ ╚████║██║  ██║███████╗██║   \n"
+            printf "${BOLD}${CYAN}   ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝   \n"
+            ;;
+        *)
+            # 通用 fallback：box 样式
+            local len=${#text}
+            local pad=$((len + 4))
+            local line=""
+            local i
+            for ((i = 0; i < pad; i++)); do line="${line}═"; done
+            printf "${BOLD}${CYAN}╔${line}╗${RESET}\n"
+            printf "${BOLD}${CYAN}║  %s  ║${RESET}\n" "$text"
+            printf "${BOLD}${CYAN}╚${line}╝${RESET}\n"
+            ;;
+    esac
+}
+
 # 跳转到任务 session 的具体 window ───────────────────────────────────────────
 
 jump_to_task() {
@@ -84,10 +125,14 @@ render() {
     local count
     count=$(count_queue)
 
-    # 标题栏
-    printf "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${RESET}\n"
-    printf "${BOLD}${CYAN}║     Claude Code · HITL Monitor                      ║${RESET}\n"
-    printf "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${RESET}\n"
+    # Banner / 标题栏
+    if [[ "$BANNER_ENABLED" == "true" ]]; then
+        render_banner "$BANNER_TEXT"
+    else
+        printf "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${RESET}\n"
+        printf "${BOLD}${CYAN}║     Claude Code · HITL Monitor                      ║${RESET}\n"
+        printf "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${RESET}\n"
+    fi
     printf "\n"
 
     if [[ "$count" -eq 0 ]]; then
@@ -146,6 +191,9 @@ render() {
 
 # 确保队列文件存在
 touch "$QUEUE_FILE"
+
+# 加载 banner 配置
+load_banner_config
 
 # 关闭终端 echo，设置 raw 输入
 old_stty=$(stty -g)

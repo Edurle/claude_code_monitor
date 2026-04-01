@@ -21,6 +21,7 @@ from typing import List, Dict, Optional, Tuple, Any
 # 导入自定义模块
 from lib.theme import ThemeManager, Theme
 from lib.stats import StatsManager
+from lib.banner import BannerRenderer
 
 # 插件系统（可选导入）
 try:
@@ -90,6 +91,9 @@ class HitlMonitor:
         # 初始化核心模块
         self.theme_manager = ThemeManager()
         self.stats_manager = StatsManager()
+        self.banner_renderer = BannerRenderer(
+            Path(__file__).parent / "config" / "banner.yaml"
+        )
 
         # 初始化插件系统
         self._init_plugins()
@@ -323,6 +327,13 @@ class HitlMonitor:
 
         import curses
 
+        # ASCII art banner
+        if self.banner_renderer.enabled:
+            banner_lines = self.banner_renderer.render(w)
+            for line in banner_lines:
+                self.addstr(row, 0, line, curses.color_pair(1) | curses.A_BOLD)
+                row += 1
+
         # 标题栏
         theme_name = self.theme_manager.current.name
         title = f" Claude Code · HITL Monitor · {theme_name} "
@@ -466,12 +477,18 @@ class HitlMonitor:
         h, w = self.get_effective_size()
         import curses
 
+        row = 0
+        # 紧凑 banner
+        if self.banner_renderer.enabled:
+            for line in self.banner_renderer.render(w, compact=True):
+                self.addstr(row, 0, line, curses.color_pair(1) | curses.A_BOLD)
+                row += 1
+
         # 标题
         title = " 🏆 成就系统 "
-        self.addstr(0, 0, "═" * w, curses.color_pair(3))
-        self.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
-
-        row = 2
+        self.addstr(row, 0, "═" * w, curses.color_pair(3))
+        self.addstr(row, max(0, (w - len(title)) // 2), title, curses.color_pair(3) | curses.A_BOLD)
+        row += 2
 
         # 优先使用成就插件
         achievement_plugin = self._get_achievement_plugin()
@@ -529,12 +546,18 @@ class HitlMonitor:
         h, w = self.get_effective_size()
         import curses
 
+        row = 0
+        # 紧凑 banner
+        if self.banner_renderer.enabled:
+            for line in self.banner_renderer.render(w, compact=True):
+                self.addstr(row, 0, line, curses.color_pair(1) | curses.A_BOLD)
+                row += 1
+
         # 标题
         title = " 📊 统计面板 "
-        self.addstr(0, 0, "═" * w, curses.color_pair(6))
-        self.addstr(0, max(0, (w - len(title)) // 2), title, curses.color_pair(6) | curses.A_BOLD)
-
-        row = 2
+        self.addstr(row, 0, "═" * w, curses.color_pair(6))
+        self.addstr(row, max(0, (w - len(title)) // 2), title, curses.color_pair(6) | curses.A_BOLD)
+        row += 2
 
         # 总体统计
         summary = self.stats_manager.get_summary()
