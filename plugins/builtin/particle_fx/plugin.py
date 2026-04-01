@@ -69,7 +69,7 @@ class ParticleFXPlugin(Plugin):
 
     # ========== 钩子实现 ==========
 
-    def _render_particles(self, bounds: Tuple[int, int, int, int]) -> List[Tuple[int, int, str, int]]:
+    def _render_particles(self) -> List[Tuple[int, int, str, int]]:
         """渲染粒子效果"""
         if not self._context or not self._context.particle_system:
             return []
@@ -77,8 +77,8 @@ class ParticleFXPlugin(Plugin):
         # 更新粒子系统
         self._context.particle_system.update()
 
-        # 渲染所有粒子
-        return self._context.particle_system.render(bounds)
+        # 渲染所有粒子（不受 bounds 裁剪）
+        return self._context.particle_system.render()
 
     def _on_achievement_unlock(self, achievement_id: str, achievement_data: dict):
         """成就解锁时触发庆祝效果"""
@@ -90,11 +90,13 @@ class ParticleFXPlugin(Plugin):
             return
 
         if self._context and self._context.particle_system:
-            # 在屏幕中央创建庆祝效果
+            # 使用实际屏幕尺寸计算中心位置
             ps = self._context.particle_system
-            bounds = (0, 0, 20, 60)  # 假设的边界
-            center_y = (bounds[0] + bounds[2]) // 2
-            center_x = (bounds[1] + bounds[3]) // 2
+            h, w = 20, 60  # 默认值
+            if self._context.monitor:
+                h, w = self._context.monitor.get_effective_size()
+            center_y = h // 2
+            center_x = w // 2
 
             ps.create_celebration(center_y, center_x, 6)
             ps.create_sparkle(center_y, center_x, 15)
@@ -109,8 +111,14 @@ class ParticleFXPlugin(Plugin):
             return
 
         if self._context and self._context.particle_system:
-            # 在宠物位置创建闪烁效果
-            self._context.particle_system.create_sparkle(18, 30, 5)
+            # 使用实际屏幕尺寸计算中心位置
+            h, w = 20, 60  # 默认值
+            if self._context.monitor:
+                h, w = self._context.monitor.get_effective_size()
+            center_y = h // 2
+            center_x = w // 2
+
+            self._context.particle_system.create_sparkle(center_x, center_y, 5)
 
     # ========== 公共 API ==========
 

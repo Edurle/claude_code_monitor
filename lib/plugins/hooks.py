@@ -241,7 +241,8 @@ class HookRegistry:
                     if result is not None:
                         results.append(result)
                 except Exception as e:
-                    pass  # 静默失败，避免影响其他插件
+                    import sys
+                    print(f"[Hook] {hook_name} error in {plugin_id}: {e}", file=sys.stderr)
         return results
 
     def execute_first(self, hook_name: str, *args, **kwargs) -> Optional[Any]:

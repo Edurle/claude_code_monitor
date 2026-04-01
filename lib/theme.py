@@ -251,8 +251,8 @@ class ThemeManager:
                 self._curses_colors[name] = curses.color_pair(pair_idx)
                 color_idx += 1
                 pair_idx += 1
-        else:
-            # 不支持扩展颜色：使用预设 256 色索引作为 fallback
+        elif curses.COLORS > 8:
+            # 支持 256 色：使用预设 256 色索引
             fallback_colors = {
                 "primary": 39,      # 蓝色
                 "secondary": 244,   # 灰色
@@ -263,9 +263,45 @@ class ThemeManager:
                 "warning": 214,     # 黄色
                 "error": 196,       # 红色
             }
+            try:
+                for name in color_map.keys():
+                    if name in fallback_colors:
+                        curses.init_pair(pair_idx, fallback_colors[name], -1)
+                        self._curses_colors[name] = curses.color_pair(pair_idx)
+                        pair_idx += 1
+            except (curses.error, ValueError):
+                # tmux 等环境可能报告 COLORS>8 但实际不支持，回退到 8 色模式
+                basic_colors = {
+                    "primary": curses.COLOR_BLUE,
+                    "secondary": curses.COLOR_WHITE,
+                    "accent": curses.COLOR_YELLOW,
+                    "text": curses.COLOR_WHITE,
+                    "dim": curses.COLOR_BLACK,
+                    "success": curses.COLOR_GREEN,
+                    "warning": curses.COLOR_YELLOW,
+                    "error": curses.COLOR_RED,
+                }
+                pair_idx = 1
+                for name in color_map.keys():
+                    if name in basic_colors:
+                        curses.init_pair(pair_idx, basic_colors[name], -1)
+                        self._curses_colors[name] = curses.color_pair(pair_idx)
+                        pair_idx += 1
+        else:
+            # 仅支持 8 色：使用标准 ANSI 颜色
+            basic_colors = {
+                "primary": curses.COLOR_BLUE,
+                "secondary": curses.COLOR_WHITE,
+                "accent": curses.COLOR_YELLOW,
+                "text": curses.COLOR_WHITE,
+                "dim": curses.COLOR_BLACK,
+                "success": curses.COLOR_GREEN,
+                "warning": curses.COLOR_YELLOW,
+                "error": curses.COLOR_RED,
+            }
             for name in color_map.keys():
-                if name in fallback_colors:
-                    curses.init_pair(pair_idx, fallback_colors[name], -1)
+                if name in basic_colors:
+                    curses.init_pair(pair_idx, basic_colors[name], -1)
                     self._curses_colors[name] = curses.color_pair(pair_idx)
                     pair_idx += 1
 

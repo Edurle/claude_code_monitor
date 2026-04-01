@@ -386,8 +386,7 @@ class HitlMonitor:
         self._draw_pet_area(h - 8)
 
         # 渲染粒子效果
-        bounds = (0, 0, h, w)
-        particle_results = self._trigger_hook("render_particles", bounds)
+        particle_results = self._trigger_hook("render_particles")
         if particle_results:
             for result in particle_results:
                 if isinstance(result, list):
@@ -396,11 +395,12 @@ class HitlMonitor:
                             p_row, p_col = item[0], item[1]
                             char = item[2]
                             attr = item[3] if len(item) > 3 else 0
-                            if 0 <= p_row < h and 0 <= p_col < w:
-                                try:
-                                    self.addstr(p_row, p_col, str(char), attr)
-                                except curses.error:
-                                    pass
+                            if isinstance(attr, int) and attr > 0:
+                                attr = curses.color_pair(attr)
+                            try:
+                                self.addstr(p_row, p_col, str(char), attr)
+                            except curses.error:
+                                pass
 
         # 状态消息
         if self.status_msg:
@@ -615,11 +615,6 @@ class HitlMonitor:
         """显示成就解锁动画"""
         import curses
 
-        # 触发成就解锁钩子（用于粒子效果等）
-        self._trigger_hook("on_achievement_unlock", achievement.id, {
-            "name": achievement.name, "desc": achievement.desc
-        })
-
         h, w = self.get_effective_size()
 
         # 动画框
@@ -649,6 +644,11 @@ class HitlMonitor:
 
         self.stdscr.refresh()
         time.sleep(2)  # 显示2秒
+
+        # 弹窗动画结束后触发粒子效果（避免弹窗阻塞期间粒子老化死亡）
+        self._trigger_hook("on_achievement_unlock", achievement.id, {
+            "name": achievement.name, "desc": achievement.desc
+        })
 
     def handle_key(self, key: int, entries: List[dict]) -> bool:
         """处理按键，返回是否继续运行"""
