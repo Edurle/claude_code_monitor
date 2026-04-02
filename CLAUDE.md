@@ -107,15 +107,37 @@ tmux new-session -s project-beta -c /path/to/beta
 └─────────────────┘     │  session info)   │     └────────┬────────┘
                         └──────────────────┘              │
                                                           ▼
-                        ┌──────────────────┐     ┌─────────────────┐
-                        │ claude-monitor   │◀────│ monitor.py      │
-                        │ (alias)          │     │ (curses TUI)    │
-                        └──────────────────┘     └─────────────────┘
+┌──────────────┐  ┌──────────────────┐     ┌─────────────────┐
+│ data/claude.db│◀─│ monitor.py       │◀────│ claude-monitor   │
+│ (SQLite)     │  │ (curses TUI)     │     │ (alias)          │
+└──────────────┘  └──────────────────┘     └─────────────────┘
 ```
 
 | 文件 | 职责 |
 |------|------|
 | **notify.sh** | Hook 调用入口；捕获当前 tmux 上下文，写入 JSONL 队列 |
 | **monitor.py** | 主监控器（curses TUI）；读取队列，支持跳转/丢弃/清空 |
+| **lib/database.py** | SQLite 数据库单例；schema 版本管理、JSON 旧数据自动导入 |
+| **lib/stats.py** | 统计管理器；通过 SQL 查询记录和分析用户行为 |
+| **lib/achievements.py** | 成就系统；通过 user_meta 表存取统计数据 |
 | **monitor.sh** | Bash 备用监控器（ANSI 转义，无 curses 依赖） |
 | **setup.sh** | 一次性配置：权限、环境变量、别名 |
+
+## 数据存储
+
+用户数据存储在 `data/claude.db`（SQLite），包含统计和成就信息。
+
+| 表 | 用途 |
+|----|------|
+| `daily_stats` | 每日任务/HITL/错误统计 |
+| `daily_projects` | 每日关联项目 |
+| `project_stats` | 项目累计统计 |
+| `hourly_stats` | 小时活动分布 |
+| `user_meta` | 成就系统用户数据（键值对） |
+| `unlocked_achievements` | 已解锁成就记录 |
+
+Schema 版本通过 `PRAGMA user_version` 管理，当前版本为 `1`。未来变更只需在 `lib/database.py` 的 `_MIGRATIONS` 字典添加迁移函数。
+
+### 旧数据兼容
+
+首次启动时，若存在旧的 `data/stats.json` 或 `data/achievements.json`，会自动导入 SQLite 并将原文件重命名为 `.json.imported`。
