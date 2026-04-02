@@ -243,7 +243,8 @@ class BorderParticlesPlugin(Plugin):
     @staticmethod
     def _matrix_configs(h: int, w: int, m_rate: float, m_density: float) -> Dict[str, Tuple[ParticleConfig, float, float]]:
         """矩阵样式 - 片假名字符，绿色为主"""
-        chars = [chr(c) for c in range(0x30A0, 0x30FF)]
+        chars = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*") + \
+                list("天地玄黄宇宙洪荒日月星辰寒来暑往云腾致雨金生丽水")
         colors = [2, 6, 2, 2]  # 绿色为主
 
         return {

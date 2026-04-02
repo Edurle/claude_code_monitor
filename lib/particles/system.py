@@ -415,7 +415,8 @@ class ParticleSystem:
 
     def create_matrix_rain(self, x: float, y: float, width: float, height: float) -> str:
         """创建矩阵雨效果"""
-        chars = [chr(c) for c in range(0x30A0, 0x30FF)]  # 片假名
+        chars = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*") + \
+                list("天地玄黄宇宙洪荒日月星辰寒来暑往云腾致雨金生丽水")
         config = ParticleConfig(
             emit_rate=20,
             max_particles=80,
