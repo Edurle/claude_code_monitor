@@ -60,6 +60,39 @@ ok "notify.sh  monitor.sh"
 #           }
 #         ]
 #       }
+#     ],
+#     "PreToolUse": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") working \"\$CLAUDE_TOOL_NAME\""
+#           }
+#         ]
+#       }
+#     ],
+#     "SubagentStart": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") subagent_start \"\$CLAUDE_SUBAGENT_TYPE\""
+#           }
+#         ]
+#       }
+#     ],
+#     "SubagentStop": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") subagent_stop"
+#           }
+#         ]
+#       }
 #     ]
 #   }
 # }
