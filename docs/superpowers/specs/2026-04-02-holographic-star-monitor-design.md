@@ -16,39 +16,96 @@
 ### Hook 驱动的状态检测
 
 每个 tmux session 中的 Claude Code 通过 hooks 推送状态事件到共享队列文件。
+利用 Claude Code 完整的 Hook 生命周期事件（参考：https://code.claude.com/docs/zh-CN/hooks）。
 
-**新增 hooks 配置：**
+**推荐 hooks 配置：**
 
 ```json
 {
   "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh session_start \"$CLAUDE_SESSION_ID\"" }]
+    }],
     "PreToolUse": [{
       "matcher": "",
-      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"" }]
+      "hooks": [
+        { "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"", "async": true }
+      ]
     }],
     "PostToolUse": [{
       "matcher": "",
-      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"" }]
+      "hooks": [
+        { "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"", "async": true }
+      ]
+    }],
+    "PostToolUseFailure": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh error" }]
     }],
     "Notification": [{
       "matcher": "",
       "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh hitl \"$CLAUDE_NOTIFICATION_MESSAGE\"" }]
     }],
+    "SubagentStart": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_start", "async": true }]
+    }],
+    "SubagentStop": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_stop" }]
+    }],
     "Stop": [{
       "matcher": "",
       "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh task_complete" }]
+    }],
+    "StopFailure": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh api_error" }]
+    }],
+    "SessionEnd": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh session_end" }]
     }]
   }
 }
 ```
 
+**Hook 事件 → 监控状态映射：**
+
+| Hook 事件 | 触发时机 | 监控状态 | 星图表现 |
+|-----------|---------|---------|---------|
+| `SessionStart` | 新会话启动或恢复 | `start` | 新星从中心跃迁到位置，蓝色闪光 |
+| `PreToolUse` | 工具调用前 | `working` | 橙色脉冲 + 显示工具名 |
+| `PostToolUse` | 工具调用成功后 | `working` | 橙色持续脉冲 |
+| `PostToolUseFailure` | 工具调用失败 | `error` | 红色闪烁 + 错误标记 |
+| `Notification` | 发送通知（含 HITL） | `hitl` | 红色闪烁 + 涟漪 + 加入待处理 |
+| `SubagentStart` | 子代理启动 | `working` | 星旁出现小卫星标识 |
+| `SubagentStop` | 子代理完成 | `working` | 小卫星消失 |
+| `Stop` | Claude 完成响应 | `complete` | 绿色爆发粒子 |
+| `StopFailure` | API 错误导致停止 | `error` | 红色警报 + 错误类型 |
+| `SessionEnd` | 会话结束 | `offline` | 星星渐隐消失 |
+| （5 分钟无事件） | 超时检测 | `idle` | 灰色暗淡 |
+
+**可选扩展 hooks（未来可按需启用）：**
+
+| Hook 事件 | 用途 | 备注 |
+|-----------|------|------|
+| `PermissionRequest` | 权限请求（另一种 HITL） | 与 Notification(permission_prompt) 互补 |
+| `PreCompact` | 即将压缩上下文 | 可在活动流显示 |
+| `PostCompact` | 压缩完成 | 可在活动流显示 |
+| `TaskCreated` | 任务创建 | 多代理协作场景 |
+| `TaskCompleted` | 任务完成 | 多代理协作场景 |
+
 **事件类型扩展：**
 
-notify.sh 新增 `working` 类型，携带工具名称：
+notify.sh 新增多种事件类型：
 
 ```bash
-EVENT_TYPE="${1:-hitl}"        # hitl | task_complete | working | idle
-EXTRA_INFO="${2:-}"            # 工具名 / HITL 消息 / 空
+EVENT_TYPE="${1:-hitl}"
+# hitl | task_complete | working | error | session_start | session_end |
+# subagent_start | subagent_stop | api_error | idle
+EXTRA_INFO="${2:-}"            # 工具名 / HITL 消息 / 错误类型 / 空
 ```
 
 **队列条目格式（.jsonl）：**
@@ -73,13 +130,25 @@ monitor.py 读取队列后：
 
 1. 按 session 分组，每个 session 维护最新状态
 2. 5 分钟无事件自动标记为 `idle`
-3. 状态机转换：
+3. 收到 `session_end` 标记为 `offline`（星星渐隐，5 分钟后移除）
+4. 状态机转换：
 
 ```
-idle ──hook──▶ working ──hook──▶ hitl ──Enter──▶ (用户处理)
-                     │                │
-                     └──hook──▶ complete ──5min──▶ idle
+offline ──SessionStart──▶ idle ──PreToolUse──▶ working ──Stop──▶ complete
+                              │                    │                    │
+                              │                    ├──PostToolUseFailure──▶ error
+                              │                    │                    │
+                              │                    └──Notification──▶ hitl ──Enter──▶ (用户处理)
+                              │                                         │
+                              └──5min无事件──▶ idle ◀───────5min─────────┘
+                                                                              │
+                                                                  SessionEnd──▶ offline
 ```
+
+**子代理状态追踪：**
+
+`SubagentStart` / `SubagentStop` 事件携带 `agent_type`（如 Explore、Plan 等），
+可在对应星星旁显示小标识表示子代理正在运行，提供更深层的活动可见性。
 
 ## 屏幕布局
 
@@ -126,10 +195,15 @@ idle ──hook──▶ working ──hook──▶ hitl ──Enter──▶ (
 
 | 状态 | 字符 | 颜色 | 动画 |
 |------|------|------|------|
-| working | `◆` | 橙色 (#fa0) | 脉冲发光 + 状态环 |
+| start | `◇` | 蓝色 (#08f) | 跃迁出现，蓝色闪光 |
+| working | `◆` | 橙色 (#fa0) | 脉冲发光 + 状态环 + 工具名 |
+| working+subagent | `◆·` | 橙色 (#fa0) | 脉冲 + 小卫星标识 |
 | hitl | `⚠` | 红色 (#f33) | 闪烁 + 涟漪扩散 |
-| complete | `✦` | 绿色 (#4c6) | 短暂爆发后渐稳 |
+| complete | `✦` | 绿色 (#4c6) | 爆发粒子后渐稳 |
+| error | `✖` | 红色 (#f44) | 闪烁警报 |
+| api_error | `⛔` | 深红 (#c33) | 慢闪 + 错误类型 |
 | idle | `○` | 灰色 (#456) | 无动画，低透明度 |
+| offline | (渐隐) | 暗灰 (#234) | 5 秒渐隐后消失 |
 
 每颗星下方显示 session 名称和当前操作。
 
@@ -189,11 +263,19 @@ for star in stars:
 
 | 转换 | 动画 |
 |------|------|
-| idle → working | 星星从暗淡变亮，开始脉冲 |
+| offline → start | 从中心跃迁到位置，蓝色闪光 |
+| start → idle | 星星稳定，颜色变为灰色 |
+| idle → working | 星星从暗淡变亮，开始脉冲，显示工具名 |
+| working → working | 更新工具名（持续脉冲） |
+| working + SubagentStart | 星旁出现小卫星点 |
+| working + SubagentStop | 小卫星点消失 |
 | working → hitl | 变红 + 闪烁 + 涟漪扩散 |
 | working → complete | 绿色爆发粒子后渐稳 |
-| 新 session 出现 | 从中心跃迁到位置，带蓝色闪光 |
-| session 消失 | 渐隐消失 |
+| working → error | 红色闪烁 + 错误标记 |
+| complete → idle | 5 分钟后渐暗为灰色 |
+| hitl → idle | 用户处理后颜色恢复 |
+| any → api_error | 深红慢闪 + 错误类型显示 |
+| any → offline | 5 秒渐隐后消失 |
 
 ## 新增 hook 类型
 
