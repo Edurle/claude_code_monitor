@@ -12,7 +12,9 @@
 
 import curses
 import json
+import math
 import os
+import random
 import subprocess
 import time
 from pathlib import Path
@@ -23,7 +25,7 @@ from lib.theme import ThemeManager, Theme
 from lib.stats import StatsManager
 from lib.banner import BannerRenderer
 from lib.database import Database
-from lib.session_tracker import SessionTracker
+from lib.session_tracker import SessionTracker, SessionState
 from lib.particles.system import ParticleSystem, ParticleConfig
 
 # 插件系统（可选导入）
@@ -52,6 +54,24 @@ except ImportError:
 QUEUE_FILE = Path(os.environ.get("CLAUDE_TMUX_QUEUE", Path.home() / ".claude-tmux-queue.jsonl"))
 MONITOR_SESSION = os.environ.get("CLAUDE_TMUX_MONITOR_SESSION", "monitor")
 REFRESH = 1  # 秒
+
+# 会话状态显示配置（复用 star_map 设计）
+STATUS_DISPLAY = {
+    "start":       {"char": "◇", "color": 6, "pulse": True},    # 品红 - 启动
+    "idle":        {"char": "○", "color": 5, "pulse": False},   # 白色(暗淡) - 闲置
+    "working":     {"char": "◆", "color": 2, "pulse": True},    # 黄色 - 工作
+    "hitl":        {"char": "⚠", "color": 4, "pulse": True},    # 红色 - 等待人工
+    "complete":    {"char": "✦", "color": 3, "pulse": False},   # 绿色 - 完成
+    "error":       {"char": "✖", "color": 4, "pulse": True},    # 红色 - 错误
+    "api_error":   {"char": "⛔", "color": 4, "pulse": True},   # 红色 - API错误
+    "offline":     {"char": "·", "color": 5, "pulse": False},   # 白色(暗淡) - 离线
+}
+
+# 网格排序优先级（越小越靠前）
+GRID_PRIORITY = {
+    "hitl": 0, "error": 1, "api_error": 2, "working": 3,
+    "start": 4, "complete": 5, "idle": 6, "offline": 7,
+}
 
 
 def display_width(s: str) -> int:
@@ -344,8 +364,20 @@ class HitlMonitor:
         for r in range(1, h - 3):
             self.addstr(r, left_w, "|", curses.A_DIM)
 
-        # 右面板 - 矩阵雨 (row 1 到 h-4)
-        self._draw_matrix_rain(1, left_w + 1, right_w, h - 4)
+        # 右面板 - 上下分割：矩阵雨 + 神经网格
+        total_right_h = h - 4
+        rain_h = max(3, total_right_h * 45 // 100)  # 上 45% 矩阵雨
+
+        # 上：矩阵雨
+        self._draw_matrix_rain(1, left_w + 1, right_w, rain_h)
+
+        # 扫描线分隔
+        self._draw_scan_line(1 + rain_h, left_w + 1, right_w)
+
+        # 下：神经网格
+        grid_start = 1 + rain_h + 1
+        grid_h = total_right_h - rain_h - 1
+        self._draw_neural_grid(grid_start, left_w + 1, right_w, grid_h)
 
         # 宠物区域（左面板底部 h-8）
         self._draw_pet_area(h - 8)
@@ -439,6 +471,30 @@ class HitlMonitor:
                     self.addstr(row, start_col + 5, info[:width - 7], curses.A_DIM)
                     row += 1
 
+    def _draw_scan_line(self, row: int, start_col: int, width: int):
+        """渲染矩阵雨与神经网格之间的扫描线分隔"""
+        sessions = self.session_tracker.get_sessions()
+        active_count = len(sessions)
+        title = f" \u25b8 NEURAL GRID \u2500\u2500 {active_count} active "
+
+        if len(title) + 4 >= width:
+            line = "\u2500" * width
+            self.addstr(row, start_col, line, curses.color_pair(1) | curses.A_DIM)
+            return
+
+        side_len = (width - len(title)) // 2
+        left_side = "\u2500" * side_len
+        right_side = "\u2500" * (width - len(title) - side_len)
+
+        self.addstr(row, start_col, left_side, curses.A_DIM)
+        self.addstr(row, start_col + side_len, title, curses.color_pair(1) | curses.A_BOLD)
+        self.addstr(row, start_col + side_len + len(title), right_side, curses.A_DIM)
+
+        # 扫描线闪烁：每 0.7s 随机位置高亮
+        if int(time.time() * 10) % 7 == 0:
+            flick_pos = start_col + (int(time.time() * 3) % max(1, width))
+            self.addstr(row, flick_pos, "\u2500", curses.color_pair(1) | curses.A_REVERSE)
+
     def _draw_matrix_rain(self, start_row: int, start_col: int, width: int, height: int):
         """渲染右侧矩阵雨效果"""
         layout = (start_col, start_row, width, height)
@@ -463,6 +519,212 @@ class HitlMonitor:
                 self.addstr(r, c, text, attr)
             except curses.error:
                 pass
+
+    # ========== 神经网格 (Neural Grid) ==========
+
+    def _draw_neural_grid(self, start_row: int, start_col: int, width: int, height: int):
+        """渲染右下神经网格 — 显示所有会话实时状态"""
+        if height < 4 or width < 20:
+            return
+
+        sessions = self.session_tracker.get_sessions()
+        frame_phase = time.time() % 2.0
+
+        if not sessions:
+            mid = height // 2
+            self.addstr(start_row + mid, start_col + 2,
+                        " awaiting connections... ",
+                        curses.color_pair(1) | curses.A_DIM)
+            return
+
+        sorted_sessions = self._sort_sessions_for_grid(sessions)
+        max_cards = max(1, height // 2)
+        visible = sorted_sessions[:max_cards]
+        overflow = len(sorted_sessions) - max_cards
+
+        row = start_row
+        for session in visible:
+            rows_used = self._render_session_card(row, start_col, width, session, frame_phase)
+            row += rows_used
+
+        if overflow > 0:
+            status_counts = {}
+            for s in sorted_sessions[max_cards:]:
+                status_counts[s.status] = status_counts.get(s.status, 0) + 1
+            summary_parts = [f"{k}:{v}" for k, v in status_counts.items()]
+            summary = f"... +{overflow} more  " + "  ".join(summary_parts)
+            if row < start_row + height:
+                self.addstr(row, start_col + 2, summary[:width - 4], curses.A_DIM)
+
+    def _render_session_card(self, row: int, col: int, width: int,
+                             session: SessionState, frame_phase: float) -> int:
+        """渲染单张会话卡片（1-2 行），返回占用行数"""
+        display = STATUS_DISPLAY.get(session.status, STATUS_DISPLAY["idle"])
+        icon = display["char"]
+        icon_color = curses.color_pair(display["color"])
+
+        # 脉冲动画
+        if display["pulse"]:
+            phase = math.sin(frame_phase * math.pi)
+            if phase > 0.3:
+                icon_color |= curses.A_BOLD
+            elif phase < -0.3:
+                icon_color |= curses.A_DIM
+
+        # 第一行：[icon] name  [activity_bar]  STATUS  tool
+        self.addstr(row, col, icon, icon_color)
+
+        name = (session.project or session.session)[:12]
+        self.addstr(row, col + 2, name, curses.color_pair(5))
+
+        bar_text, bar_attr = self._build_activity_bar(session.status, frame_phase, session.last_event_ts)
+        self.addstr(row, col + 15, bar_text, bar_attr)
+
+        # 状态标签
+        label_map = {
+            "working": "WORK", "hitl": "HITL!", "idle": "IDLE",
+            "error": "ERR!!", "api_error": "API!", "complete": "DONE",
+            "start": "LOAD", "offline": "OFF",
+        }
+        label = label_map.get(session.status, "????")
+        self.addstr(row, col + 26, label, icon_color)
+
+        # 工具名（仅 working 状态）
+        remaining = width - 32
+        if remaining > 3 and session.tool:
+            self.addstr(row, col + 32, session.tool[:remaining], curses.A_DIM)
+
+        # 第二行：详情（条件渲染）
+        detail, detail_attr = self._format_session_detail(session)
+        if detail:
+            detail_text = "  \u2514\u2500 " + detail
+            self.addstr(row + 1, col, detail_text[:width], detail_attr)
+            return 2
+
+        return 1
+
+    def _build_activity_bar(self, status: str, frame_phase: float,
+                            last_event_ts: float) -> Tuple[str, int]:
+        """构建 10 字符动画活动条"""
+        if status == "working":
+            fill_pct = 0.5 + 0.2 * math.sin(frame_phase * math.pi)
+            filled = int(10 * fill_pct)
+            bar = "\u2593" * filled + "\u2591" * (10 - filled)
+            return bar, curses.color_pair(2)
+
+        elif status == "hitl":
+            bar = "\u2593" * 10
+            if int(frame_phase * 2) % 2 == 0:
+                attr = curses.color_pair(4) | curses.A_BOLD
+            else:
+                attr = curses.color_pair(4) | curses.A_DIM
+            return bar, attr
+
+        elif status == "idle":
+            return "\u2591" * 10, curses.A_DIM
+
+        elif status == "error":
+            base = [1, 1, 0, 1, 1, 0, 0, 0, 1, 0]
+            rng = random.Random(int(frame_phase * 10))
+            for _ in range(3):
+                idx = rng.randint(0, 9)
+                base[idx] = 1 - base[idx]
+            bar = "".join("\u2593" if b else "\u2591" for b in base)
+            return bar, curses.color_pair(4)
+
+        elif status == "api_error":
+            base = [1, 1, 0, 1, 0, 0, 1, 0, 0, 1]
+            rng = random.Random(int(frame_phase * 10))
+            for _ in range(3):
+                idx = rng.randint(0, 9)
+                base[idx] = 1 - base[idx]
+            chars = []
+            for b in base:
+                if b and rng.random() < 0.3:
+                    chars.append("\u2588")
+                elif b:
+                    chars.append("\u2593")
+                else:
+                    chars.append("\u2591")
+            return "".join(chars), curses.color_pair(4) | curses.A_BOLD
+
+        elif status == "complete":
+            bar = "\u2593" * 10
+            age = time.time() - last_event_ts if last_event_ts > 0 else 999
+            if age < 30:
+                attr = curses.color_pair(3) | curses.A_BOLD
+            elif age < 120:
+                attr = curses.color_pair(3)
+            else:
+                attr = curses.color_pair(3) | curses.A_DIM
+            return bar, attr
+
+        elif status == "start":
+            sweep_pos = int((frame_phase / 2.0) * 10) % 10
+            bar_list = ["\u2591"] * 10
+            for i in range(min(3, sweep_pos + 1)):
+                pos = (sweep_pos - i) % 10
+                bar_list[pos] = "\u2593"
+            return "".join(bar_list), curses.color_pair(6)
+
+        else:  # offline
+            return "\u00b7" * 10, curses.A_DIM
+
+    def _format_session_detail(self, session: SessionState) -> Tuple[str, int]:
+        """格式化会话卡片第二行详情文本，返回 (text, attr)"""
+        detail = ""
+        attr = curses.A_DIM
+        sub_text = ""
+
+        if session.subagents:
+            names = ",".join(session.subagents[:3])
+            if len(session.subagents) > 3:
+                names += f",..."
+            sub_text = f" +{session.subagent_count} sub:{names}"
+
+        if session.status == "hitl":
+            detail = session.hitl_info or "awaiting response"
+            attr = curses.color_pair(4) | curses.A_BOLD
+        elif session.status == "working":
+            parts = []
+            if session.tool:
+                parts.append(session.tool)
+            if session.info and session.info != session.tool:
+                parts.append(session.info[:20])
+            detail = " ".join(parts) if parts else "processing"
+            attr = curses.color_pair(6) | curses.A_DIM
+        elif session.status in ("error", "api_error"):
+            detail = session.info or "unknown error"
+            attr = curses.color_pair(4)
+        elif session.status == "idle":
+            if session.last_event_ts > 0:
+                elapsed = int(time.time() - session.last_event_ts)
+                mins, secs = divmod(elapsed, 60)
+                detail = f"idle {mins}m{secs:02d}s"
+            else:
+                detail = "idle"
+            attr = curses.A_DIM
+        elif session.status == "complete":
+            detail = f"done {session.last_event_time}"
+            attr = curses.color_pair(3) | curses.A_DIM
+        elif session.status == "start":
+            detail = "initializing..."
+            attr = curses.color_pair(6) | curses.A_DIM
+        elif session.status == "offline":
+            detail = "disconnected"
+            attr = curses.A_DIM
+
+        if sub_text:
+            detail = detail + sub_text if detail else sub_text.lstrip()
+
+        return detail, attr
+
+    def _sort_sessions_for_grid(self, sessions: List[SessionState]) -> List[SessionState]:
+        """按优先级排序会话：hitl > error > working > start > complete > idle > offline"""
+        return sorted(sessions, key=lambda s: (
+            GRID_PRIORITY.get(s.status, 99),
+            -s.last_event_ts,
+        ))
 
     def _draw_pet_area(self, start_row: int):
         """绘制宠物区域"""
