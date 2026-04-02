@@ -57,6 +57,7 @@ class PluginContext:
     animation_engine: Optional['AnimationEngine'] = None  # 动画引擎
     particle_system: Optional['ParticleSystem'] = None    # 粒子系统
     monitor: Any = None                     # 监控器引用
+    db: Any = None                          # Database 实例
 
     def log(self, message: str, level: str = "INFO"):
         """记录日志"""

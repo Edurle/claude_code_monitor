@@ -22,6 +22,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from lib.theme import ThemeManager, Theme
 from lib.stats import StatsManager
 from lib.banner import BannerRenderer
+from lib.database import Database
 
 # 插件系统（可选导入）
 try:
@@ -89,8 +90,9 @@ class HitlMonitor:
         self.last_queue_length = 0
 
         # 初始化核心模块
+        self.db = Database.get_instance()
         self.theme_manager = ThemeManager()
-        self.stats_manager = StatsManager()
+        self.stats_manager = StatsManager(self.db)
         self.banner_renderer = BannerRenderer(
             Path(__file__).parent / "config" / "banner.yaml"
         )
@@ -100,7 +102,7 @@ class HitlMonitor:
 
         # 初始化兼容模块（如果插件不可用）
         if not self._use_plugins and LEGACY_MODULES:
-            self.achievement_manager = AchievementManager()
+            self.achievement_manager = AchievementManager(self.db)
             self.pet = Pet(achievement_count=self.achievement_manager.unlocked_count)
         else:
             self.achievement_manager = None
@@ -150,6 +152,7 @@ class HitlMonitor:
                     animation_engine=self.animation_engine,
                     particle_system=self.particle_system,
                     monitor=self,
+                    db=self.db,
                 )
                 self.plugin_manager.set_context(context)
 

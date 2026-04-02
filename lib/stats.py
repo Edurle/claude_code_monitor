@@ -2,16 +2,11 @@
 # lib/stats.py - 统计模块
 """用户行为统计和分析"""
 
-import json
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import List, Optional
 from datetime import datetime, timedelta
-from collections import defaultdict
 
-# 数据存储路径
-DATA_DIR = Path(__file__).parent.parent / "data"
-STATS_FILE = DATA_DIR / "stats.json"
+from lib.database import Database
 
 
 @dataclass
@@ -23,146 +18,158 @@ class DailyStats:
     errors: int = 0
     projects: set = field(default_factory=set)
 
-    def to_dict(self) -> dict:
-        return {
-            "date": self.date,
-            "tasks": self.tasks,
-            "hitl_count": self.hitl_count,
-            "errors": self.errors,
-            "projects": list(self.projects),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "DailyStats":
-        return cls(
-            date=data["date"],
-            tasks=data.get("tasks", 0),
-            hitl_count=data.get("hitl_count", 0),
-            errors=data.get("errors", 0),
-            projects=set(data.get("projects", [])),
-        )
-
 
 class StatsManager:
     """统计管理器"""
 
-    def __init__(self):
-        self._daily_stats: Dict[str, DailyStats] = {}
-        self._project_stats: Dict[str, Dict] = defaultdict(lambda: {
-            "total": 0, "hitl": 0, "errors": 0, "last_seen": ""
-        })
-        self._hourly_distribution: Dict[int, int] = defaultdict(int)
-        self._load()
-
-    def _load(self):
-        """从文件加载"""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        if STATS_FILE.exists():
-            try:
-                data = json.loads(STATS_FILE.read_text())
-                self._daily_stats = {
-                    k: DailyStats.from_dict(v)
-                    for k, v in data.get("daily", {}).items()
-                }
-                self._project_stats = defaultdict(
-                    lambda: {"total": 0, "hitl": 0, "errors": 0, "last_seen": ""},
-                    data.get("projects", {})
-                )
-                self._hourly_distribution = defaultdict(
-                    int, data.get("hourly", {})
-                )
-            except (json.JSONDecodeError, Exception):
-                pass
-
-    def _save(self):
-        """保存到文件"""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
-            "daily": {k: v.to_dict() for k, v in self._daily_stats.items()},
-            "projects": dict(self._project_stats),
-            "hourly": {str(k): v for k, v in self._hourly_distribution.items()},
-        }
-        STATS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    def __init__(self, db: Optional[Database] = None):
+        self._db = db or Database.get_instance()
 
     def record_event(self, event_type: str, project: str = ""):
         """记录事件"""
         today = datetime.now().strftime("%Y-%m-%d")
         hour = datetime.now().hour
 
+        # 确保当日记录存在
+        self._db.execute(
+            "INSERT OR IGNORE INTO daily_stats (date, tasks, hitl_count, errors) VALUES (?, 0, 0, 0)",
+            (today,)
+        )
+
         # 更新每日统计
-        if today not in self._daily_stats:
-            self._daily_stats[today] = DailyStats(date=today)
-
-        daily = self._daily_stats[today]
-        daily.tasks += 1
         if event_type == "hitl":
-            daily.hitl_count += 1
+            self._db.execute(
+                "UPDATE daily_stats SET tasks = tasks + 1, hitl_count = hitl_count + 1 WHERE date = ?",
+                (today,)
+            )
         elif event_type == "error":
-            daily.errors += 1
-        if project:
-            daily.projects.add(project)
+            self._db.execute(
+                "UPDATE daily_stats SET tasks = tasks + 1, errors = errors + 1 WHERE date = ?",
+                (today,)
+            )
+        else:
+            self._db.execute(
+                "UPDATE daily_stats SET tasks = tasks + 1 WHERE date = ?",
+                (today,)
+            )
 
-        # 更新项目统计
+        # 关联项目
         if project:
-            self._project_stats[project]["total"] += 1
-            self._project_stats[project]["last_seen"] = today
-            if event_type == "hitl":
-                self._project_stats[project]["hitl"] += 1
-            elif event_type == "error":
-                self._project_stats[project]["errors"] += 1
+            self._db.execute(
+                "INSERT OR IGNORE INTO daily_projects (date, project) VALUES (?, ?)",
+                (today, project)
+            )
+            # 更新项目统计
+            self._db.execute(
+                "INSERT INTO project_stats (project, total, hitl, errors, last_seen) VALUES (?, 0, 0, 0, '') "
+                "ON CONFLICT(project) DO UPDATE SET "
+                "total = total + 1, "
+                "hitl = hitl + CASE WHEN ? = 'hitl' THEN 1 ELSE 0 END, "
+                "errors = errors + CASE WHEN ? = 'error' THEN 1 ELSE 0 END, "
+                "last_seen = ?",
+                (project, event_type, event_type, today)
+            )
 
         # 更新小时分布
-        self._hourly_distribution[hour] += 1
+        self._db.execute(
+            "INSERT INTO hourly_stats (hour, count) VALUES (?, 1) "
+            "ON CONFLICT(hour) DO UPDATE SET count = count + 1",
+            (hour,)
+        )
 
-        self._save()
+        self._db.commit()
 
     def get_today_stats(self) -> DailyStats:
         """获取今日统计"""
         today = datetime.now().strftime("%Y-%m-%d")
-        return self._daily_stats.get(today, DailyStats(date=today))
+        row = self._db.query_one("SELECT * FROM daily_stats WHERE date = ?", (today,))
+        if not row:
+            return DailyStats(date=today)
+        projects = {
+            r["project"] for r in self._db.query_all(
+                "SELECT project FROM daily_projects WHERE date = ?", (today,)
+            )
+        }
+        return DailyStats(
+            date=today,
+            tasks=row["tasks"],
+            hitl_count=row["hitl_count"],
+            errors=row["errors"],
+            projects=projects,
+        )
 
     def get_week_stats(self) -> List[DailyStats]:
         """获取本周统计"""
         today = datetime.now()
         week_start = today - timedelta(days=today.weekday())
+        start_str = week_start.strftime("%Y-%m-%d")
+        end_str = (week_start + timedelta(days=6)).strftime("%Y-%m-%d")
+
+        daily_rows = self._db.query_all(
+            "SELECT * FROM daily_stats WHERE date BETWEEN ? AND ?",
+            (start_str, end_str)
+        )
+        daily_map = {r["date"]: r for r in daily_rows}
+
+        project_rows = self._db.query_all(
+            "SELECT date, project FROM daily_projects WHERE date BETWEEN ? AND ?",
+            (start_str, end_str)
+        )
+        proj_map: dict[str, set] = {}
+        for r in project_rows:
+            proj_map.setdefault(r["date"], set()).add(r["project"])
+
         stats = []
         for i in range(7):
-            date = (week_start + timedelta(days=i)).strftime("%Y-%m-%d")
-            stats.append(self._daily_stats.get(date, DailyStats(date=date)))
+            d = (week_start + timedelta(days=i)).strftime("%Y-%m-%d")
+            if d in daily_map:
+                row = daily_map[d]
+                stats.append(DailyStats(
+                    date=d, tasks=row["tasks"],
+                    hitl_count=row["hitl_count"], errors=row["errors"],
+                    projects=proj_map.get(d, set()),
+                ))
+            else:
+                stats.append(DailyStats(date=d))
         return stats
 
     def get_top_projects(self, limit: int = 5) -> List[tuple]:
         """获取最活跃的项目"""
-        sorted_projects = sorted(
-            self._project_stats.items(),
-            key=lambda x: x[1]["total"],
-            reverse=True
+        rows = self._db.query_all(
+            "SELECT project, total, hitl, errors, last_seen FROM project_stats "
+            "ORDER BY total DESC LIMIT ?", (limit,)
         )
-        return sorted_projects[:limit]
+        return [(r["project"], {
+            "total": r["total"], "hitl": r["hitl"],
+            "errors": r["errors"], "last_seen": r["last_seen"]
+        }) for r in rows]
 
     def get_peak_hours(self, limit: int = 5) -> List[tuple]:
         """获取高峰时段"""
-        sorted_hours = sorted(
-            self._hourly_distribution.items(),
-            key=lambda x: x[1],
-            reverse=True
+        rows = self._db.query_all(
+            "SELECT hour, count FROM hourly_stats ORDER BY count DESC LIMIT ?", (limit,)
         )
-        return sorted_hours[:limit]
+        return [(r["hour"], r["count"]) for r in rows]
 
     def get_summary(self) -> dict:
         """获取统计摘要"""
-        total_tasks = sum(d.tasks for d in self._daily_stats.values())
-        total_hitl = sum(d.hitl_count for d in self._daily_stats.values())
-        total_errors = sum(d.errors for d in self._daily_stats.values())
-        total_projects = len(self._project_stats)
-
+        row = self._db.query_one(
+            "SELECT COALESCE(SUM(tasks), 0) as total_tasks, "
+            "COALESCE(SUM(hitl_count), 0) as total_hitl, "
+            "COALESCE(SUM(errors), 0) as total_errors, "
+            "COUNT(*) as days_active "
+            "FROM daily_stats"
+        ) or {"total_tasks": 0, "total_hitl": 0, "total_errors": 0, "days_active": 0}
+        proj_row = self._db.query_one("SELECT COUNT(*) as cnt FROM project_stats")
+        total_tasks = row["total_tasks"]
+        days_active = row["days_active"]
         return {
             "total_tasks": total_tasks,
-            "total_hitl": total_hitl,
-            "total_errors": total_errors,
-            "total_projects": total_projects,
-            "days_active": len(self._daily_stats),
-            "avg_tasks_per_day": total_tasks / max(len(self._daily_stats), 1),
+            "total_hitl": row["total_hitl"],
+            "total_errors": row["total_errors"],
+            "total_projects": proj_row["cnt"] if proj_row else 0,
+            "days_active": days_active,
+            "avg_tasks_per_day": total_tasks / max(days_active, 1),
         }
 
     def get_week_chart(self, width: int = 20) -> str:

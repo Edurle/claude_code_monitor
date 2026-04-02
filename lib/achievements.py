@@ -2,16 +2,12 @@
 # lib/achievements.py - 成就系统
 """游戏化成就系统，追踪用户行为并解锁成就"""
 
-import json
 import time
-from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable
 from datetime import datetime, timedelta
 
-# 数据存储路径
-DATA_DIR = Path(__file__).parent.parent / "data"
-ACHIEVEMENTS_FILE = DATA_DIR / "achievements.json"
+from lib.database import Database
 
 
 @dataclass
@@ -41,25 +37,21 @@ class UserStats:
     first_task_time_today: float = 0.0
     last_session_date: str = ""
 
-    def to_dict(self) -> dict:
-        return {
-            "total_tasks": self.total_tasks,
-            "hitl_count": self.hitl_count,
-            "hitl_count_5min": self.hitl_count_5min,
-            "error_count": self.error_count,
-            "error_free_hours": self.error_free_hours,
-            "active_projects": self.active_projects,
-            "consecutive_days": self.consecutive_days,
-            "last_task_time": self.last_task_time,
-            "tasks_today": self.tasks_today,
-            "current_hour": self.current_hour,
-            "first_task_time_today": self.first_task_time_today,
-            "last_session_date": self.last_session_date,
-        }
+    # 字段名列表，用于 user_meta 键值读写
+    _fields = [
+        "total_tasks", "hitl_count", "hitl_count_5min", "error_count",
+        "error_free_hours", "active_projects", "consecutive_days",
+        "last_task_time", "tasks_today", "current_hour",
+        "first_task_time_today", "last_session_date",
+    ]
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "UserStats":
-        return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
+    def _type_defaults(self) -> dict:
+        return {
+            "total_tasks": 0, "hitl_count": 0, "hitl_count_5min": 0,
+            "error_count": 0, "error_free_hours": 0.0, "active_projects": 0,
+            "consecutive_days": 0, "last_task_time": 0.0, "tasks_today": 0,
+            "current_hour": 0, "first_task_time_today": 0.0, "last_session_date": "",
+        }
 
 
 # 成就定义
@@ -154,34 +146,42 @@ ACHIEVEMENTS: Dict[str, Achievement] = {
 class AchievementManager:
     """成就管理器"""
 
-    def __init__(self):
-        self._unlocked: List[str] = []
+    def __init__(self, db: Optional[Database] = None):
+        self._db = db or Database.get_instance()
         self._stats = UserStats()
-        self._history: List[dict] = []
-        self._recently_unlocked: List[str] = []  # 新解锁的成就（用于显示动画）
+        self._recently_unlocked: List[str] = []
         self._load()
 
     def _load(self):
-        """从文件加载数据"""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        if ACHIEVEMENTS_FILE.exists():
-            try:
-                data = json.loads(ACHIEVEMENTS_FILE.read_text())
-                self._unlocked = data.get("unlocked", [])
-                self._stats = UserStats.from_dict(data.get("stats", {}))
-                self._history = data.get("history", [])
-            except (json.JSONDecodeError, Exception):
-                pass
+        """从数据库加载"""
+        rows = self._db.query_all("SELECT key, value FROM user_meta")
+        meta = {r["key"]: r["value"] for r in rows}
+
+        for fname in UserStats._fields:
+            raw = meta.get(fname)
+            if raw is not None:
+                default_val = self._stats._type_defaults()[fname]
+                try:
+                    if isinstance(default_val, int):
+                        setattr(self._stats, fname, int(raw))
+                    elif isinstance(default_val, float):
+                        setattr(self._stats, fname, float(raw))
+                    else:
+                        setattr(self._stats, fname, raw)
+                except (ValueError, TypeError):
+                    pass
 
     def _save(self):
-        """保存数据到文件"""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
-            "unlocked": self._unlocked,
-            "stats": self._stats.to_dict(),
-            "history": self._history,
-        }
-        ACHIEVEMENTS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        """保存统计数据到数据库"""
+        for fname in UserStats._fields:
+            value = getattr(self._stats, fname)
+            # 保持与 JSON 导入一致：数字直接存为字符串
+            val_str = str(value)
+            self._db.execute(
+                "INSERT OR REPLACE INTO user_meta (key, value) VALUES (?, ?)",
+                (fname, val_str)
+            )
+        self._db.commit()
 
     def record_task(self, event_type: str, project: str = ""):
         """记录任务事件"""
@@ -242,7 +242,7 @@ class AchievementManager:
         newly_unlocked = []
 
         for aid, achievement in ACHIEVEMENTS.items():
-            if aid not in self._unlocked:
+            if aid not in self._get_unlocked_set():
                 try:
                     if achievement.condition(self._stats):
                         self._unlock(aid)
@@ -253,24 +253,29 @@ class AchievementManager:
         self._recently_unlocked = newly_unlocked
         return newly_unlocked
 
+    def _get_unlocked_set(self) -> set:
+        rows = self._db.query_all("SELECT achievement_id FROM unlocked_achievements")
+        return {r["achievement_id"] for r in rows}
+
     def _unlock(self, achievement_id: str):
         """解锁成就"""
-        if achievement_id not in self._unlocked:
-            self._unlocked.append(achievement_id)
-            self._history.append({
-                "id": achievement_id,
-                "unlocked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            })
-            self._save()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._db.execute(
+            "INSERT OR IGNORE INTO unlocked_achievements (achievement_id, unlocked_at) VALUES (?, ?)",
+            (achievement_id, now_str)
+        )
+        self._db.commit()
 
     def get_unlocked(self) -> List[Achievement]:
         """获取已解锁的成就列表"""
-        return [ACHIEVEMENTS[aid] for aid in self._unlocked if aid in ACHIEVEMENTS]
+        unlocked_ids = self._get_unlocked_set()
+        return [ACHIEVEMENTS[aid] for aid in unlocked_ids if aid in ACHIEVEMENTS]
 
     def get_all(self) -> List[tuple]:
         """获取所有成就及其解锁状态"""
+        unlocked_ids = self._get_unlocked_set()
         return [
-            (ACHIEVEMENTS[aid], aid in self._unlocked)
+            (ACHIEVEMENTS[aid], aid in unlocked_ids)
             for aid in ACHIEVEMENTS
         ]
 
@@ -294,7 +299,8 @@ class AchievementManager:
     @property
     def unlocked_count(self) -> int:
         """获取已解锁成就数量"""
-        return len(self._unlocked)
+        row = self._db.query_one("SELECT COUNT(*) as cnt FROM unlocked_achievements")
+        return row["cnt"] if row else 0
 
     @property
     def total_count(self) -> int:
