@@ -93,6 +93,50 @@ ok "notify.sh  monitor.sh"
 #           }
 #         ]
 #       }
+#     ],
+#     "PostToolUseFailure": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") error \"\$CLAUDE_TOOL_NAME\""
+#           }
+#         ]
+#       }
+#     ],
+#     "StopFailure": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") api_error \"\$CLAUDE_ERROR_TYPE\""
+#           }
+#         ]
+#       }
+#     ],
+#     "SessionStart": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") session_start"
+#           }
+#         ]
+#       }
+#     ],
+#     "SessionEnd": [
+#       {
+#         "matcher": "",
+#         "hooks": [
+#           {
+#             "type": "command",
+#             "command": "bash $(printf '%q' "$NOTIFY") session_end"
+#           }
+#         ]
+#       }
 #     ]
 #   }
 # }

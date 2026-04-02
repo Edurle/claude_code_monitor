@@ -57,11 +57,15 @@ claude-monitor  # 🚀 启动监控器
 {
   "hooks": {
     "Stop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh task_complete" }] }],
+    "StopFailure": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh api_error \"$CLAUDE_ERROR_TYPE\"" }] }],
     "Notification": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh hitl \"$CLAUDE_NOTIFICATION_MESSAGE\"" }] }],
     "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"" }] }],
     "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh task_complete" }] }],
+    "PostToolUseFailure": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh error \"$CLAUDE_TOOL_NAME\"" }] }],
     "SubagentStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_start \"$CLAUDE_SUBAGENT_TYPE\"" }] }],
-    "SubagentStop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_stop" }] }]
+    "SubagentStop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_stop" }] }],
+    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh session_start" }] }],
+    "SessionEnd": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh session_end" }] }]
   }
 }
 ```
