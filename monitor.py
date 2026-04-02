@@ -23,6 +23,8 @@ from lib.theme import ThemeManager, Theme
 from lib.stats import StatsManager
 from lib.banner import BannerRenderer
 from lib.database import Database
+from lib.session_tracker import SessionTracker
+from lib.star_map import StarMap
 
 # 插件系统（可选导入）
 try:
@@ -96,6 +98,11 @@ class HitlMonitor:
         self.banner_renderer = BannerRenderer(
             Path(__file__).parent / "config" / "banner.yaml"
         )
+
+        # 全息星图组件
+        self.session_tracker = SessionTracker()
+        self.star_map = StarMap()
+        self.fleet_scroll = 0  # HITL 列表滚动
 
         # 初始化插件系统
         self._init_plugins()
@@ -322,6 +329,129 @@ class HitlMonitor:
 
         # 底部
         self.addstr(y + h - 1, x, bl + b * (w - 2) + br)
+
+    def draw_fleet_view(self, entries: List[dict]):
+        """全息星图视图：左右分栏布局"""
+        h, w = self.get_effective_size()
+
+        left_w = max(30, w * 2 // 5)  # 40%
+        right_w = w - left_w - 1       # 60% - 分隔线
+
+        # 顶栏 (row 0)
+        self._draw_top_bar(h, w)
+
+        # 左面板 (row 1 到 h-4)
+        self._draw_left_panel(1, 0, left_w, h - 4, entries)
+
+        # 分隔线
+        for r in range(1, h - 3):
+            self.addstr(r, left_w, "|", curses.A_DIM)
+
+        # 右面板 - 星图 (row 1 到 h-4)
+        self._draw_star_field(1, left_w + 1, right_w, h - 4)
+
+        # 宠物区域（左面板底部 h-8）
+        self._draw_pet_area(h - 8)
+
+        # 粒子效果（全屏覆盖）
+        particle_results = self._trigger_hook("render_particles")
+        if particle_results:
+            for result in particle_results:
+                if isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, tuple) and len(item) >= 3:
+                            try:
+                                self.addstr(item[0], item[1], str(item[2]),
+                                            item[3] if len(item) > 3 and isinstance(item[3], int) and item[3] > 0 else 0)
+                            except curses.error:
+                                pass
+
+        # 状态消息 (h-3)
+        if self.status_msg:
+            self.addstr(h - 3, 2, self.status_msg, curses.color_pair(2))
+
+        # 分隔线 (h-2)
+        self.addstr(h - 2, 0, "-" * w, curses.A_DIM)
+
+        # 提示栏 (h-1)
+        hints = "[Enter]jump [up/dn]select [d]drop [T]theme [A]achieve [S]stats [P]pet [q]quit"
+        self.addstr(h - 1, 0, hints, curses.A_DIM)
+
+    def _draw_top_bar(self, h: int, w: int):
+        sessions = self.session_tracker.get_sessions()
+        total = len(sessions)
+        hitl = sum(1 for s in sessions if s.status == "hitl")
+        working = sum(1 for s in sessions if s.status == "working")
+        complete = sum(1 for s in sessions if s.status == "complete")
+
+        bar = f" <> CLAUDE FLEET MONITOR  {total} sessions"
+        if hitl:
+            bar += f"  HITL:{hitl}"
+        if working:
+            bar += f"  WORK:{working}"
+        if complete:
+            bar += f"  DONE:{complete}"
+        self.addstr(0, 0, bar.ljust(w), curses.color_pair(1) | curses.A_BOLD)
+
+    def _draw_left_panel(self, start_row: int, start_col: int, width: int, end_row: int, entries: list):
+        row = start_row
+
+        # HITL 待处理区
+        hitl_sessions = self.session_tracker.get_hitl_sessions()
+        hitl_count = len(hitl_sessions)
+
+        if hitl_count > 0:
+            self.addstr(row, start_col + 1, f"!! HITL pending ({hitl_count})",
+                         curses.color_pair(4) | curses.A_BOLD)
+            row += 1
+            for i, s in enumerate(hitl_sessions):
+                if row >= end_row - 8:  # 留出宠物空间
+                    break
+                marker = ">" if i == self.fleet_scroll % max(hitl_count, 1) else " "
+                line = f" {marker} {s.project or s.session}"
+                self.addstr(row, start_col + 1, line[:width],
+                             curses.color_pair(4) if i == self.fleet_scroll % max(hitl_count, 1) else curses.color_pair(5))
+                if s.hitl_info:
+                    row += 1
+                    self.addstr(row, start_col + 3, s.hitl_info[:width - 4], curses.A_DIM)
+                row += 1
+        else:
+            self.addstr(row, start_col + 1, " OK All sessions running", curses.color_pair(2))
+            row += 1
+
+        # 分隔线
+        row += 1
+        self.addstr(row, start_col, "-" * width, curses.A_DIM)
+        row += 1
+
+        # 活动流
+        self.addstr(row, start_col + 1, "<> Activity Stream", curses.color_pair(1))
+        row += 1
+        stream = self.session_tracker.get_activity_stream(limit=20)
+        for item in stream:
+            if row >= end_row - 8:
+                break
+            ts = item.get("ts", "")
+            typ = item.get("type", "")
+            proj = item.get("project", "")
+            info = item.get("info", "")
+            type_icon = {"working": "*", "hitl": "!", "task_complete": "+",
+                         "error": "x", "session_start": "o"}.get(typ, ".")
+            type_color = {"working": 3, "hitl": 4, "task_complete": 2,
+                          "error": 4}.get(typ, 5)
+            line = f" {ts} {type_icon} {proj[:8]} {info[:10]}"
+            self.addstr(row, start_col + 1, line[:width], curses.color_pair(type_color))
+            row += 1
+
+    def _draw_star_field(self, start_row: int, start_col: int, width: int, height: int):
+        elements = self.star_map.render(
+            self.stdscr, start_col, start_row, width, height, self.addstr
+        )
+        for (r, c, text, attr) in elements:
+            try:
+                self.addstr(r, c, text, attr)
+            except curses.error:
+                pass
 
     def draw_queue_view(self, entries: List[dict]):
         """绘制队列视图"""
@@ -722,7 +852,20 @@ class HitlMonitor:
             return True
 
         if key in (curses.KEY_ENTER, 10, 13):  # Enter
-            if entries:
+            # 优先从 session_tracker 获取 HITL session
+            hitl = self.session_tracker.get_hitl_sessions()
+            if hitl:
+                idx = self.fleet_scroll % len(hitl)
+                s = hitl[idx]
+                err = self.jump_to_task({"session": s.session, "win_idx": s.win_idx})
+                if err:
+                    self.status_msg = err
+                    self.status_clear_at = time.time() + 3
+                else:
+                    self.status_msg = f"jump -> {s.project or s.session}"
+                    self.status_clear_at = time.time() + 2
+                    self.pop_first()
+            elif entries:
                 err = self.jump_to_task(entries[0])
                 if err:
                     self.status_msg = err
@@ -769,6 +912,10 @@ class HitlMonitor:
                     self.status_msg = "已跳转并处理任务"
                     self.status_clear_at = time.time() + 2
 
+        elif key == curses.KEY_UP:
+            self.fleet_scroll = max(0, self.fleet_scroll - 1)
+        elif key == curses.KEY_DOWN:
+            self.fleet_scroll += 1
         elif key == ord("d") or key == ord("D"):
             if entries:
                 self.pop_first()
@@ -799,6 +946,13 @@ class HitlMonitor:
         while True:
             entries = self.read_queue()
 
+            # 推送事件给 session tracker
+            for entry in entries:
+                self.session_tracker.process_event(entry)
+            self.session_tracker.tick()
+            self.star_map.update_from_sessions(self.session_tracker.get_sessions())
+            self.star_map.tick()
+
             # 检测队列变化
             current_length = len(entries)
             if current_length > self.last_queue_length:
@@ -818,7 +972,7 @@ class HitlMonitor:
             # 绘制
             self.stdscr.erase()
             if self.current_view == VIEW_QUEUE:
-                self.draw_queue_view(entries)
+                self.draw_fleet_view(entries)
             elif self.current_view == VIEW_ACHIEVEMENTS:
                 self.draw_achievements_view()
             elif self.current_view == VIEW_STATS:

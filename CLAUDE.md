@@ -43,7 +43,8 @@ claude-monitor  # 🚀 启动监控器
 
 | 按键 | 动作 |
 |------|------|
-| `Enter` | 跳转到队首任务所在的 tmux 窗口 |
+| `Enter` | 跳转到选中的 HITL 任务所在的 tmux 窗口 |
+| `↑`/`↓` | 在 HITL 列表中选择 |
 | `d` | 丢弃队首条目 |
 | `c` | 清空全部队列 |
 | `q` | 退出监控器（队列保留） |
@@ -56,10 +57,16 @@ claude-monitor  # 🚀 启动监控器
 {
   "hooks": {
     "Stop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh task_complete" }] }],
-    "Notification": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh hitl \"$CLAUDE_NOTIFICATION_MESSAGE\"" }] }]
+    "Notification": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh hitl \"$CLAUDE_NOTIFICATION_MESSAGE\"" }] }],
+    "PreToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh working \"$CLAUDE_TOOL_NAME\"" }] }],
+    "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh task_complete" }] }],
+    "SubagentStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_start \"$CLAUDE_SUBAGENT_TYPE\"" }] }],
+    "SubagentStop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/claude-tmux/notify.sh subagent_stop" }] }]
   }
 }
 ```
+
+支持的事件类型：`hitl` | `task_complete` | `working` | `error` | `session_start` | `session_end` | `subagent_start` | `subagent_stop` | `api_error`
 
 ## 高级用法
 
@@ -116,7 +123,9 @@ tmux new-session -s project-beta -c /path/to/beta
 | 文件 | 职责 |
 |------|------|
 | **notify.sh** | Hook 调用入口；捕获当前 tmux 上下文，写入 JSONL 队列 |
-| **monitor.py** | 主监控器（curses TUI）；读取队列，支持跳转/丢弃/清空 |
+| **monitor.py** | 主监控器（curses TUI）；左右分栏布局，集成星图视图 |
+| **lib/session_tracker.py** | Session 状态追踪：状态机、空闲检测、活动流管理 |
+| **lib/star_map.py** | 全息星图渲染引擎：节点飘动、背景效果、流星、雷达 |
 | **lib/database.py** | SQLite 数据库单例；schema 版本管理、JSON 旧数据自动导入 |
 | **lib/stats.py** | 统计管理器；通过 SQL 查询记录和分析用户行为 |
 | **lib/achievements.py** | 成就系统；通过 user_meta 表存取统计数据 |
