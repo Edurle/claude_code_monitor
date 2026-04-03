@@ -49,15 +49,16 @@ class PluginInfo:
 @dataclass
 class PluginContext:
     """插件上下文 - 提供给插件的环境"""
-    stdscr: Any = None                      # curses 窗口
-    theme_manager: Any = None               # 主题管理器
-    data_dir: str = ""                      # 数据目录
-    config: Dict[str, Any] = field(default_factory=dict)  # 插件配置
-    render_buffer: Any = None               # 渲染缓冲区
-    animation_engine: Optional['AnimationEngine'] = None  # 动画引擎
-    particle_system: Optional['ParticleSystem'] = None    # 粒子系统
-    monitor: Any = None                     # 监控器引用
-    db: Any = None                          # Database 实例
+    theme: Any = None            # IThemeManager
+    db: Any = None               # IDatabase
+    particles: Any = None        # IParticleSystem
+    sessions: Any = None         # ISessionTracker
+    stats: Any = None             # IStatsManager
+    queue: Any = None             # IQueueManager
+    events: Any = None            # IEventBus
+    config: Dict[str, Any] = field(default_factory=dict)
+    data_dir: str = ""
+    animation_engine: Any = None
 
     def log(self, message: str, level: str = "INFO"):
         """记录日志"""
@@ -151,3 +152,31 @@ class Plugin(ABC):
         if self._context and self._context.config:
             return self._context.config.get(key, default)
         return default
+
+    # ── Region 渲染接口 ──
+
+    def declare_regions(self) -> list:
+        """声明此插件需要的布局区域。返回 Region 列表。"""
+        return []
+
+    def render_region(self, region_id: str, rect, data: dict) -> list:
+        """渲染指定区域。返回 [(row, col, text, attr), ...], 坐标相对于 Rect 左上角。"""
+        return []
+
+    # ── 叠加渲染 (绝对坐标) ──
+
+    def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> list:
+        """叠加层渲染。返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
+        return []
+
+    # ── 全屏渲染 (返回非空即独占) ──
+
+    def render_fullscreen(self, screen_h: int, screen_w: int, data: dict) -> list:
+        """全屏渲染。返回非空列表表示独占整个屏幕。"""
+        return []
+
+    # ── 输入处理 ──
+
+    def handle_key(self, key: int, context: dict) -> bool:
+        """处理按键。返回 True 表示已消费该按键。"""
+        return False
