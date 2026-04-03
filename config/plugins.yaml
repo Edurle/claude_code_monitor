@@ -56,3 +56,43 @@ plugins:
       style: sparkle              # sparkle / flame_trail / matrix / neon_glow
       emit_rate_multiplier: 1.0   # 发射速率倍率
       particle_density: 1.0       # 粒子密度倍率
+
+  # 顶部栏插件
+  builtin.top-bar:
+    enabled: true
+    priority: 100
+
+  # 任务队列插件
+  builtin.task-queue:
+    enabled: true
+    priority: 100
+
+  # 矩阵雨插件
+  builtin.matrix-rain:
+    enabled: true
+    priority: 80
+
+  # 神经网格插件
+  builtin.neural-grid:
+    enabled: true
+    priority: 80
+
+  # 状态栏插件
+  builtin.status-bar:
+    enabled: true
+    priority: 100
+
+  # 提示栏插件
+  builtin.hints-bar:
+    enabled: true
+    priority: 90
+
+  # 成就视图插件
+  builtin.achievements-view:
+    enabled: true
+    priority: 75
+
+  # 统计视图插件
+  builtin.stats-view:
+    enabled: true
+    priority: 75
