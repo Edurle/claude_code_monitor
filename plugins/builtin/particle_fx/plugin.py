@@ -6,6 +6,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 
 from lib.plugins.core import Plugin, PluginInfo, PluginContext, PluginPriority
+from lib.eventbus import EventType
 
 
 class ParticleFXPlugin(Plugin):
@@ -52,6 +53,11 @@ class ParticleFXPlugin(Plugin):
         self.register_hook("render_particles", self._render_particles)
         self.register_hook("on_achievement_unlock", self._on_achievement_unlock)
         self.register_hook("on_task_complete", self._on_task_complete)
+
+        # 通过 EventBus 订阅事件
+        if self._context and self._context.events:
+            self._context.events.subscribe(EventType.TASK_COMPLETE, self._on_task_complete_event)
+            self._context.events.subscribe(EventType.ACHIEVEMENT_UNLOCK, self._on_achievement_unlock_event)
 
     def on_start(self):
         super().on_start()
@@ -119,6 +125,27 @@ class ParticleFXPlugin(Plugin):
             center_x = w // 2
 
             self._context.particle_system.create_sparkle(center_x, center_y, 5)
+
+    def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
+        """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
+        if not self._context or not self._context.particle_system:
+            return []
+
+        # 更新粒子系统
+        self._context.particle_system.update()
+
+        # 渲染所有粒子（不受 bounds 裁剪）
+        return self._context.particle_system.render()
+
+    # ========== EventBus 事件处理 ==========
+
+    def _on_task_complete_event(self, data: dict):
+        """任务完成事件 (EventBus)"""
+        self._on_task_complete(data.get("entry", {}), data.get("stats", {}))
+
+    def _on_achievement_unlock_event(self, data: dict):
+        """成就解锁事件 (EventBus)"""
+        self._on_achievement_unlock(data.get("achievement_id", ""), data)
 
     # ========== 公共 API ==========
 

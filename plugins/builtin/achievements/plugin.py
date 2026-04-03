@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from lib.plugins.core import Plugin, PluginInfo, PluginContext, PluginPriority
 from lib.database import Database
+from lib.eventbus import EventType
 
 
 @dataclass
@@ -152,6 +153,10 @@ class AchievementsPlugin(Plugin):
         self._recently_unlocked: List[str] = []
         self._db: Optional[Database] = None
         self._projects: set = set()
+        self._popup_data: Optional[dict] = None  # 成就弹窗数据
+        self._popup_time: float = 0.0  # 弹窗显示开始时间
+
+        self._popup_duration: float = 3.0  # 弹窗持续时间（秒)
 
     @property
     def info(self) -> PluginInfo:
@@ -177,6 +182,11 @@ class AchievementsPlugin(Plugin):
         self.register_hook("on_task_complete", self._on_task_complete)
         self.register_hook("render_achievement_popup", self._render_popup)
         self.register_hook("render_achievement_list", self._render_list)
+
+        # 通过 EventBus 订阅事件
+        if self._context and self._context.events:
+            self._context.events.subscribe(EventType.TASK_COMPLETE, self._on_task_complete_event)
+            self._context.events.subscribe(EventType.QUEUE_CHANGED, self._on_queue_changed_event)
 
     def on_start(self):
         super().on_start()
@@ -210,6 +220,8 @@ class AchievementsPlugin(Plugin):
                 except (ValueError, TypeError):
                     pass
 
+        self._db.commit()
+
     def _save(self):
         """保存数据到数据库"""
         if not self._db:
@@ -223,7 +235,81 @@ class AchievementsPlugin(Plugin):
             )
         self._db.commit()
 
-    # ========== 钩子实现 ==========
+    # ========== EventBus 事件处理 ==========
+
+    def _on_task_complete_event(self, data: dict):
+        """任务完成事件 (EventBus)"""
+        self._record_task("complete", data.get("project", ""))
+        newly_unlocked = self._check_achievements()
+
+        # 触发成就解锁事件
+        if newly_unlocked and self._context:
+            for aid in newly_unlocked:
+                achievement = ACHIEVEMENTS.get(aid)
+                if achievement:
+                    # 通知其他插件
+                    self._context.monitor._trigger_hook(
+                        "on_achievement_unlock", aid, {
+                            "name": achievement.name,
+                            "desc": achievement.desc,
+                            "icon": achievement.icon,
+                        }
+                    )
+                    # 显示弹窗
+                    self._show_popup(achievement)
+
+    def _on_queue_changed_event(self, data: dict):
+        """队列变化事件 (EventBus)"""
+        # 随队列变化更新统计
+        pass
+
+    # ========== 成就弹窗 (overlay) ==========
+
+    def _show_popup(self, achievement: Achievement):
+        """显示成就弹窗"""
+        self._popup_data = {
+            "name": achievement.name,
+            "desc": achievement.desc,
+            "icon": achievement.icon,
+        }
+        self._popup_time = time.time()
+        self._popup_duration = 3.0  # 3秒后自动消失
+
+        self._clear_popup()
+
+    def _clear_popup(self):
+        """清除弹窗"""
+        self._popup_data = None
+        self._popup_time = 0.0
+
+    def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
+        """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
+        # 渲染成就弹窗
+        if self._popup_data and time.time() - self._popup_time < self._popup_duration:
+            return []
+
+        results = []
+        name = self._popup_data.get("name", "成就")
+        desc = self._popup_data.get("desc", "")
+        icon = self._popup_data.get("icon", "🏆")
+
+        lines = [
+            f"╭{'─' * 20}╮",
+            f"│{icon:^20}│",
+            f"│{name:^18}│",
+            f"│{desc:^18}│",
+            f"╰{'─' * 20}╯",
+        ]
+
+        center_y = screen_h // 2
+        center_x = screen_w // 2
+        start_y = center_y - len(lines) // 2
+        for i, line in enumerate(lines):
+            results.append((start_y + i, center_x - len(line) // 2, line, 0))
+
+        return results
+
+    # ========== 錩子实现 ==========
 
     def _on_new_task(self, entry: dict):
         """新任务入队"""
@@ -247,6 +333,8 @@ class AchievementsPlugin(Plugin):
                             "icon": achievement.icon,
                         }
                     )
+                    # 显示弹窗
+                    self._show_popup(achievement)
 
     def _render_popup(self, achievement: dict, center_y: int, center_x: int) -> List[Tuple[int, int, str, int]]:
         """渲染成就解锁弹窗"""
@@ -305,7 +393,6 @@ class AchievementsPlugin(Plugin):
                 self._stats.hitl_count_5min += 1
             else:
                 self._stats.hitl_count_5min = 1
-
         # 更新连续天数
         if self._stats.last_session_date != today:
             yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -314,13 +401,11 @@ class AchievementsPlugin(Plugin):
             else:
                 self._stats.consecutive_days = 1
             self._stats.last_session_date = today
-
         # 更新今日任务数
         if self._stats.last_session_date == today:
             self._stats.tasks_today += 1
         else:
             self._stats.tasks_today = 1
-
         self._stats.last_task_time = now
         self._save()
 
@@ -334,7 +419,6 @@ class AchievementsPlugin(Plugin):
         """检查并解锁成就，返回新解锁的成就ID列表"""
         newly_unlocked = []
         unlocked_ids = self._get_unlocked_set()
-
         for aid, achievement in ACHIEVEMENTS.items():
             if aid not in unlocked_ids:
                 try:
@@ -343,7 +427,6 @@ class AchievementsPlugin(Plugin):
                         newly_unlocked.append(aid)
                 except Exception:
                     pass
-
         self._recently_unlocked = newly_unlocked
         return newly_unlocked
 

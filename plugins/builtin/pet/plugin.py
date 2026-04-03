@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 
 from lib.plugins.core import Plugin, PluginInfo, PluginContext, PluginPriority
+from lib.layout import Region, Slot, Rect
 
 
 class PetState(Enum):
@@ -293,11 +294,84 @@ class PetPlugin(Plugin):
         self._data.last_interaction = time.time()
         self._data.last_state_change = time.time()
 
-        # 注册钩子
-        self.register_hook("render_pet_area", self._render_pet_area)
-        self.register_hook("on_new_task", self._on_new_task)
-        self.register_hook("on_task_complete", self._on_task_complete)
-        self.register_hook("on_achievement_unlock", self._on_achievement_unlock)
+        # 通过 EventBus 订阅事件
+        if self._context and self._context.events:
+            self._context.events.subscribe("task_complete", self._on_task_complete_event)
+            self._context.events.subscribe("queue_changed", self._on_queue_changed)
+
+    def declare_regions(self) -> List[Region]:
+        """声明宠物区域"""
+        return [Region(id="pet", slot=Slot.LEFT, min_height=4, weight=30, priority=50)]
+
+    def render_region(self, region_id: str, rect: Rect, data: dict) -> List[Tuple[int, int, str, int]]:
+        """渲染指定区域。返回 [(row, col, text, attr), ...], 坐标相对于 Rect 左上角。"""
+        if region_id != "pet":
+            return []
+
+        self._update_state()
+        self._frame += 1
+
+        results = []
+        art = self._get_current_art()
+
+        for i, line in enumerate(art.lines):
+            row = i  # 相对坐标
+            # 居中显示
+            col = max(0, (rect.width - len(line)) // 2)
+            results.append((row, col, line, 0))  # 0 = 默认颜色
+
+        # 显示心情文字
+        mood = self._get_mood_text()
+        if mood:
+            mood_row = len(art.lines)
+            mood_col = max(0, (rect.width - len(mood)) // 2)
+            results.append((mood_row, mood_col, mood, 0))
+
+        return results
+
+    def handle_key(self, key: int, context: dict) -> bool:
+        """处理按键。P=互动，F=喂食"""
+        if key == ord('p') or key == ord('P'):
+            self.interact()
+            if self._context and self._context.events:
+                self._context.events.emit("set_status", {"message": "摸了摸宠物~"})
+            return True
+        elif key == ord('f') or key == ord('F'):
+            self.feed()
+            if self._context and self._context.events:
+                self._context.events.emit("set_status", {"message": "喂食成功~"})
+            return True
+        return False
+
+    def feed(self):
+        """喂食宠物"""
+        self._data.total_interactions += 1
+        self._data.last_interaction = time.time()
+        self.set_state(PetState.HAPPY)
+        self._set_mood("好吃!")
+
+    def _on_task_complete_event(self, data: dict):
+        """任务完成事件 (EventBus)"""
+        self._data.last_interaction = time.time()
+        self.set_state(PetState.HAPPY)
+        self._set_random_mood(PetState.HAPPY)
+
+        # 触发庆祝动画
+        if self._context and self._context.animation_engine:
+            self._context.animation_engine.play("pet_celebrate", "pet_animation")
+
+        # 触发粒子效果
+        if self._context and self._context.particle_system:
+            self._context.particle_system.create_sparkle(20, 5, 8)
+
+    def _on_queue_changed(self, data: dict):
+        """队列变化事件 (EventBus)"""
+        queue_length = data.get("queue_length", 0) if data else 0
+        if queue_length > 0:
+            self._data.total_interactions += 1
+            self._data.last_interaction = time.time()
+            self.set_state(PetState.ALERT)
+            self._set_mood("新任务!")
 
     def on_start(self):
         super().on_start()

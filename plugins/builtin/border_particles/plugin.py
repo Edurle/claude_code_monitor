@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Optional
 
 from lib.plugins.core import Plugin, PluginInfo, PluginContext, PluginPriority
 from lib.particles.system import ParticleConfig, ParticleSystem
+from lib.eventbus import EventType
 
 
 class BorderParticlesPlugin(Plugin):
@@ -41,6 +42,10 @@ class BorderParticlesPlugin(Plugin):
         self._particle_density = float(self.get_config("particle_density", 1.0))
 
         self.register_hook("render_particles", self._render_particles)
+
+        # 通过 EventBus 订阅事件
+        if self._context and self._context.events:
+            self._context.events.subscribe(EventType.RESIZE, self._on_resize_event)
 
     def on_start(self):
         super().on_start()
@@ -92,6 +97,37 @@ class BorderParticlesPlugin(Plugin):
         if (h, w) != self._last_size:
             self._remove_border_emitters()
             self._create_border_emitters()
+
+    def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
+        """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
+        if not self._context or not self._context.particle_system:
+            return []
+
+        # 检测 resize
+        self._check_resize()
+
+        ps = self._context.particle_system
+
+        # 更新粒子系统（与 particle_fx 共享，短时间内重复调用 delta≈0）
+        now = time.time()
+        if now - self._last_render_time > 0.05:
+            ps.update()
+            self._last_render_time = now
+
+        # 仅渲染自己的发射器，避免重复渲染其他插件的粒子
+        results = []
+        for edge, emitter_id in self._emitter_ids.items():
+            emitter = ps.get_emitter(emitter_id)
+            if emitter:
+                results.extend(emitter.render())
+
+        return results
+
+    # ========== EventBus 事件处理 ==========
+
+    def _on_resize_event(self, data: dict):
+        """终端尺寸变化事件 (EventBus)"""
+        self._check_resize()
 
     # ========== 钩子实现 ==========
 
