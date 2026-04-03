@@ -1,0 +1,9 @@
+id: builtin.neural-grid
+name: 神经网格
+version: 1.0.0
+author: system
+description: 右下神经网格 — 会话状态卡片
+priority: 80
+dependencies: []
+provides: [neural_grid]
+hooks: []
