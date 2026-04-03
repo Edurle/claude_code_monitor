@@ -277,13 +277,16 @@ class HitlMonitor:
 
         return sorted(session_map.values(), key=lambda e: e.get("ts", ""), reverse=True)
 
-    def pop_first(self):
-        """弹出队首"""
+    def pop_entry(self, target: dict):
+        """移除指定条目（按 session 匹配）"""
         entries = self.read_queue()
         if not entries:
             return
+        session = target.get("session", "")
         with open(QUEUE_FILE, "w") as f:
-            for e in entries[1:]:
+            for e in entries:
+                if e.get("session", "") == session:
+                    continue
                 f.write(json.dumps(e) + "\n")
 
     def clear_queue(self):
@@ -1034,14 +1037,15 @@ class HitlMonitor:
             return True
 
         if key in (curses.KEY_ENTER, 10, 13):  # Enter
-            if entries:
-                err = self.jump_to_task(entries[0])
+            actionable = [e for e in entries if e.get("type") in self.TYPE_COLOR]
+            if actionable:
+                err = self.jump_to_task(actionable[0])
                 if err:
                     self.status_msg = err
                     self.status_clear_at = time.time() + 3
                 else:
-                    entry = entries[0]
-                    self.pop_first()
+                    entry = actionable[0]
+                    self.pop_entry(entry)
 
                     # 记录事件
                     event_type = entry.get("type", "hitl")
@@ -1081,8 +1085,9 @@ class HitlMonitor:
                     self.status_clear_at = time.time() + 2
 
         elif key == ord("d") or key == ord("D"):
-            if entries:
-                self.pop_first()
+            actionable = [e for e in entries if e.get("type") in self.TYPE_COLOR]
+            if actionable:
+                self.pop_entry(actionable[0])
                 pet_plugin = self._get_pet_plugin()
                 if pet_plugin:
                     pass
