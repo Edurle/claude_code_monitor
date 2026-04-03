@@ -1,0 +1,9 @@
+id: builtin.top-bar
+name: 顶栏统计
+version: 1.0.0
+author: system
+description: 显示队列统计 (CLAUDE CODE MONITOR ...)
+priority: 100
+dependencies: []
+provides: [top_bar]
+hooks: []
