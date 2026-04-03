@@ -19,7 +19,8 @@
 | Create | `lib/protocols.py` | 核心服务 Protocol 接口定义 |
 | Create | `lib/eventbus.py` | EventBus 发布/订阅 |
 | Create | `lib/layout.py` | LayoutEngine + Slot + Region + Rect |
-| Create | `lib/frame.py` | Frame 主循环、blit、dispatch |
+| Create | `lib/utils.py` | display_width() 等共享工具函数 |
+| Create | `lib/frame.py` | Frame 主循环、blit、dispatch、QueueManager |
 | Modify | `lib/plugins/core.py` | Plugin 基类扩展 (declare_regions/render_overlay/render_fullscreen) |
 | Modify | `lib/plugins/manager.py` | 适配新 PluginContext (去掉 stdscr) |
 | Create | `plugins/builtin/top-bar/plugin.py` | 顶栏渲染 |
@@ -154,8 +155,9 @@ class EventBus:
         for _, callback in sorted_subs:
             try:
                 callback(data)
-            except Exception:
-                pass
+            except Exception as e:
+                import sys
+                print(f"[EventBus] Error in handler for '{event}': {e}", file=sys.stderr)
 
     def _unsubscribe(self, event: str, callback: Callable):
         if event in self._subscribers:
@@ -305,15 +307,40 @@ git commit -m "feat: 添加 LayoutEngine + Slot + Region + Rect"
 
 ---
 
-## Task 4: 扩展 Plugin 基类
+## Task 4: 扩展 Plugin 基类 + 共享工具函数
 
 **Files:**
 - Modify: `lib/plugins/core.py`
+- Create: `lib/utils.py`
 
-- [ ] **Step 1: 在 Plugin 基类中添加 declare_regions / render_region / render_overlay / render_fullscreen 方法**
+- [ ] **Step 1: 将 display_width() 秐入共享模块**
 
-在 `lib/plugins/core.py` 的 `Plugin` 类中添加：
+从 monitor.py lines 77-87 迁移。
 
+多个插件需要此函数。
+
+创建 `lib/utils.py`：
+
+```python
+"""共享工具函数"""
+from typing import List
+
+
+import unicodedata
+
+
+def display_width(s: str) -> int:
+    """计算字符串显示宽度（考虑全角字符和 emoji）"""
+    width = 0
+    for c in s:
+        code = ord(c)
+        if '\u4e00' <= c <= '\u9fff' or code > 0x1F00:
+            width += 2
+        else:
+            width += 1
+    return width
+  return sum(display_width(t) for t in [int, for c in t])
+ (ord(c) > 0x1F00))
 ```python
     # Region 声明
     def declare_regions(self) -> list:
@@ -338,7 +365,24 @@ git commit -m "feat: 添加 LayoutEngine + Slot + Region + Rect"
         return False
 ```
 
-同时更新 `PluginContext` dataclass：移除 `stdscr` 字段，添加 `events` 字段（IEventBus）。
+更新 `PluginContext` dataclass：移除 `stdscr`、`render_buffer`、 `monitor` 字段，添加 `events` 字段（IEventBus）。
+
+完整新定义：
+
+```python
+@dataclass
+class PluginContext:
+    theme: Any = None        # IThemeManager
+    db: Any = None           # IDatabase
+    particles: Any = None    # IParticleSystem
+    sessions: Any = None    # ISessionTracker
+    stats: Any = None        # IStatsManager
+    queue: Any = None        # IQueueManager
+    events: Any = None       # IEventBus
+    config: Dict[str, Any] = field(default_factory=dict)
+    data_dir: str = ""
+    animation_engine: Any = None
+```
 
 - [ ] **Step 2: Commit**
 
@@ -356,16 +400,31 @@ git commit -m "feat: Plugin 基类扩展 declare_regions/render_region/render_ov
 
 - [ ] **Step 1: 更新 PluginManager 的 context 创建逻辑**
 
-将 `PluginContext` 构造从当前字段映射改为新字段（去掉 stdscr，添加 events）。确保 `start_all()` 后调用每个插件的 `on_load(ctx)` 和 `on_start()`。
+更新 `PluginContext` 为完整新定义：
 
-关键修改点：`manager.py` 中创建 `PluginContext` 的地方，改为传入新的字段集。
+```python
+@dataclass
+class PluginContext:
+    theme: Any = None        # IThemeManager
+    db: Any = None           # IDatabase
+    particles: Any = None    # IParticleSystem
+    sessions: Any = None    # ISessionTracker
+    stats: Any = None        # IStatsManager
+    queue: Any = None        # IQueueManager
+    events: Any = None       # IEventBus
+    config: Dict[str, Any] = field(default_factory=dict)
+    data_dir: str = ""
+    animation_engine: Any = None
+```
+
+更新 `manager.py` 中创建 `PluginContext` 的地方，改为传入新字段。关键修改点：`manager.py` 中创建 `PluginContext` 的地方，改为传入新的字段集。
 
 - [ ] **Step 2: 添加 sorted_plugins() 方法**
 
 ```python
     def sorted_plugins(self) -> list:
         """返回按 priority 降序排列的活跃插件。"""
-        plugins = [p for p in self._plugins.values() if p.state == PluginState.STARTED]
+        plugins = [p for p in self._plugins.values() if p.state == PluginState.RUNNING]
         return sorted(plugins, key=lambda p: -p.info.priority.value)
 ```
 
