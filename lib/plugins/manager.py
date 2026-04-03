@@ -145,14 +145,16 @@ class PluginManager:
                 plugin_config = self._configs.get(plugin_id, PluginConfig())
                 merged_config = {**self._context.config, **plugin_config.settings}
                 plugin_context = PluginContext(
-                    stdscr=self._context.stdscr,
-                    theme_manager=self._context.theme_manager,
-                    data_dir=self._context.data_dir,
+                    theme=self._context.theme,
+                    db=self._context.db,
+                    particles=self._context.particles,
+                    sessions=self._context.sessions,
+                    stats=self._context.stats,
+                    queue=self._context.queue,
+                    events=self._context.events,
                     config=merged_config,
-                    render_buffer=self._context.render_buffer,
+                    data_dir=self._context.data_dir,
                     animation_engine=self._context.animation_engine,
-                    particle_system=self._context.particle_system,
-                    monitor=self._context.monitor,
                 )
                 plugin.set_context(plugin_context)
 
@@ -303,3 +305,8 @@ class PluginManager:
         """获取插件状态"""
         plugin = self._plugins.get(plugin_id)
         return plugin.state if plugin else None
+
+    def sorted_plugins(self) -> list:
+        """返回按 priority 降序排列的活跃插件。"""
+        plugins = [p for p in self._plugins.values() if p.state == PluginState.RUNNING]
+        return sorted(plugins, key=lambda p: -p.info.priority.value)
