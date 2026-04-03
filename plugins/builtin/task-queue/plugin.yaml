@@ -1,0 +1,9 @@
+id: builtin.task-queue
+name: 任务队列
+version: 1.0.0
+author: system
+description: 左侧任务队列 — 可操作事件列表 + Enter/d/c 输入处理
+priority: 100
+dependencies: []
+provides: [task_queue]
+hooks: []
