@@ -1,0 +1,9 @@
+id: builtin.achievements-view
+name: 成就全屏页
+version: 1.0.0
+author: system
+description: 成就系统全屏视图
+priority: 75
+dependencies: []
+provides: [achievements_view]
+hooks: []

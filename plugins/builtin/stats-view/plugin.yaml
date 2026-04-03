@@ -1,0 +1,9 @@
+id: builtin.stats-view
+name: 统计全屏页
+version: 1.0.0
+author: system
+description: 统计信息全屏视图
+priority: 75
+dependencies: []
+provides: [stats_view]
+hooks: []
