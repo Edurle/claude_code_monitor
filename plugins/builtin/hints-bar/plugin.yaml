@@ -1,0 +1,9 @@
+id: builtin.hints-bar
+name: 快捷键提示栏
+version: 1.0.0
+author: system
+description: 快捷键提示行 + 视图切换
+priority: 90
+dependencies: []
+provides: [hints_bar]
+hooks: []

@@ -1,0 +1,9 @@
+id: builtin.status-bar
+name: 状态消息栏
+version: 1.0.0
+author: system
+description: 状态消息行 + 自动清除
+priority: 100
+dependencies: []
+provides: [status_bar]
+hooks: []
