@@ -1,0 +1,9 @@
+id: builtin.matrix-rain
+name: 矩阵雨
+version: 1.0.0
+author: system
+description: 矩阵雨效果 + 扫描线分隔
+priority: 80
+dependencies: []
+provides: [matrix_rain]
+hooks: []
