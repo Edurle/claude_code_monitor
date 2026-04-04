@@ -361,8 +361,8 @@ class PetPlugin(Plugin):
             self._context.animation_engine.play("pet_celebrate", "pet_animation")
 
         # 触发粒子效果
-        if self._context and self._context.particle_system:
-            self._context.particle_system.create_sparkle(20, 5, 8)
+        if self._context and self._context.particles:
+            self._context.particles.create_sparkle(20, 5, 8)
 
     def _on_queue_changed(self, data: dict):
         """队列变化事件 (EventBus)"""
@@ -421,9 +421,9 @@ class PetPlugin(Plugin):
             self._context.animation_engine.play("pet_celebrate", "pet_animation")
 
         # 触发粒子效果
-        if self._context and self._context.particle_system:
+        if self._context and self._context.particles:
             # 获取宠物位置（大约在屏幕底部）
-            self._context.particle_system.create_sparkle(20, 5, 8)
+            self._context.particles.create_sparkle(20, 5, 8)
 
     def _on_achievement_unlock(self, achievement_id: str, achievement_data: dict):
         """成就解锁"""
@@ -434,8 +434,8 @@ class PetPlugin(Plugin):
         self._set_mood("解锁成就!")
 
         # 触发庆祝粒子
-        if self._context and self._context.particle_system:
-            self._context.particle_system.create_celebration(20, 8, 6)
+        if self._context and self._context.particles:
+            self._context.particles.create_celebration(20, 8, 6)
 
     # ========== 状态管理 ==========
 

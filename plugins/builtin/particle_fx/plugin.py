@@ -65,8 +65,8 @@ class ParticleFXPlugin(Plugin):
 
         # 启动环境效果
         ambient = self._effects_config.get("ambient", {})
-        if ambient.get("enabled") and self._context and self._context.particle_system:
-            ps = self._context.particle_system
+        if ambient.get("enabled") and self._context and self._context.particles:
+            ps = self._context.particles
             effect_type = ambient.get("type", "stars")
             # 在屏幕顶部创建环境效果
             if effect_type == "stars":
@@ -78,14 +78,14 @@ class ParticleFXPlugin(Plugin):
 
     def _render_particles(self) -> List[Tuple[int, int, str, int]]:
         """渲染粒子效果"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return []
 
         # 更新粒子系统
-        self._context.particle_system.update()
+        self._context.particles.update()
 
         # 渲染所有粒子（不受 bounds 裁剪）
-        return self._context.particle_system.render()
+        return self._context.particles.render()
 
     def _on_achievement_unlock(self, achievement_id: str, achievement_data: dict):
         """成就解锁时触发庆祝效果"""
@@ -96,9 +96,9 @@ class ParticleFXPlugin(Plugin):
         if not config.get("trigger_on_achievement", True):
             return
 
-        if self._context and self._context.particle_system:
+        if self._context and self._context.particles:
             # 使用缓存屏幕尺寸计算中心位置
-            ps = self._context.particle_system
+            ps = self._context.particles
             h, w = self._screen_size
             center_y = h // 2
             center_x = w // 2
@@ -115,27 +115,27 @@ class ParticleFXPlugin(Plugin):
         if not config.get("trigger_on_task", True):
             return
 
-        if self._context and self._context.particle_system:
+        if self._context and self._context.particles:
             # 使用缓存屏幕尺寸计算中心位置
             h, w = self._screen_size
             center_y = h // 2
             center_x = w // 2
 
-            self._context.particle_system.create_sparkle(center_x, center_y, 5)
+            self._context.particles.create_sparkle(center_x, center_y, 5)
 
     def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
         """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
         # 缓存屏幕尺寸供事件回调使用
         self._screen_size = (screen_h, screen_w)
 
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return []
 
         # 更新粒子系统
-        self._context.particle_system.update()
+        self._context.particles.update()
 
         # 渲染所有粒子（不受 bounds 裁剪）
-        return self._context.particle_system.render()
+        return self._context.particles.render()
 
     # ========== EventBus 事件处理 ==========
 
@@ -151,10 +151,10 @@ class ParticleFXPlugin(Plugin):
 
     def trigger_effect(self, effect_name: str, x: float = 0, y: float = 0, **kwargs):
         """手动触发粒子效果"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return
 
-        ps = self._context.particle_system
+        ps = self._context.particles
 
         if effect_name == "celebration":
             spread = kwargs.get("spread", 6)
