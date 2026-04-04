@@ -67,10 +67,19 @@ plugins:
     enabled: true
     priority: 100
 
-  # 矩阵雨插件
+  # 矩阵雨插件（与 Redmine 互斥，同时只启用一个）
   builtin.matrix-rain:
+    enabled: false
+    priority: 80
+
+  # Redmine 任务查看插件
+  builtin.redmine:
     enabled: true
     priority: 80
+    settings:
+      redmine_url: ""        # 例: https://redmine.example.com
+      api_key: ""            # Redmine API Key
+      refresh_interval: 60   # 刷新间隔（秒）
 
   # 神经网格插件
   builtin.neural-grid:
