@@ -59,6 +59,7 @@ class PluginContext:
     config: Dict[str, Any] = field(default_factory=dict)
     data_dir: str = ""
     animation_engine: Any = None
+    plugin_manager: Any = None
 
     def log(self, message: str, level: str = "INFO"):
         """记录日志"""

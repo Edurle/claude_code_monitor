@@ -10,12 +10,8 @@ from lib.plugins.core import Plugin, PluginInfo, PluginPriority
 from lib.layout import Region, Slot
 
 
-# 类型颜色映射：(颜色对, 图标)
-TYPE_COLOR = {
-    "hitl": (curses.color_pair(2), "⚡"),
-    "task_complete": (curses.color_pair(3), "✓"),
-    "error": (curses.color_pair(4), "✗"),
-}
+# 可操作的事件类型
+ACTIONABLE_TYPES = {"hitl", "task_complete", "error"}
 
 
 class TaskQueuePlugin(Plugin):
@@ -25,6 +21,16 @@ class TaskQueuePlugin(Plugin):
         super().__init__()
         self._status_msg = ""
         self._status_clear_at = 0.0
+
+    @staticmethod
+    def _type_color(etype: str):
+        """获取类型颜色和图标（惰性，curses 已初始化后才调用）"""
+        colors = {
+            "hitl": (curses.color_pair(2), "⚡"),
+            "task_complete": (curses.color_pair(3), "✓"),
+            "error": (curses.color_pair(4), "✗"),
+        }
+        return colors.get(etype, (curses.color_pair(5), "·"))
 
     @property
     def info(self) -> PluginInfo:
@@ -86,7 +92,7 @@ class TaskQueuePlugin(Plugin):
             info = entry.get("info", "")
             wdir = entry.get("dir", "")
 
-            color, icon = TYPE_COLOR.get(etype, (curses.color_pair(5), "·"))
+            color, icon = self._type_color(etype)
             target = f"{session}:{win_name}" if win_name else session
 
             if idx == 0:
@@ -135,11 +141,11 @@ class TaskQueuePlugin(Plugin):
             entry = actionable[0]
             err = self._jump_to_task(entry)
             if err:
-                self.ctx.events.emit("set_status", {"text": err, "duration": 3.0})
+                self._context.events.emit("set_status", {"msg": err, "duration": 3.0})
             else:
-                self.ctx.queue.remove(entry)
-                self.ctx.events.emit("task_complete", entry)
-                self.ctx.events.emit("set_status", {"text": "已跳转并处理任务", "duration": 2.0})
+                self._context.queue.remove(entry)
+                self._context.events.emit("task_complete", entry)
+                self._context.events.emit("set_status", {"msg": "已跳转并处理任务", "duration": 2.0})
             return True
 
         # d/D: 丢弃队首
@@ -147,16 +153,16 @@ class TaskQueuePlugin(Plugin):
             if not actionable:
                 return True
             entry = actionable[0]
-            self.ctx.queue.remove(entry)
-            self.ctx.events.emit("task_discard", {"entry": entry})
-            self.ctx.events.emit("set_status", {"text": "已丢弃队首条目", "duration": 2.0})
+            self._context.queue.remove(entry)
+            self._context.events.emit("task_discard", {"entry": entry})
+            self._context.events.emit("set_status", {"msg": "已丢弃队首条目", "duration": 2.0})
             return True
 
         # c/C: 清空队列
         if key in (ord("c"), ord("C")):
-            self.ctx.queue.clear()
-            self.ctx.events.emit("queue_clear", {})
-            self.ctx.events.emit("set_status", {"text": "队列已清空", "duration": 2.0})
+            self._context.queue.clear()
+            self._context.events.emit("queue_clear", {})
+            self._context.events.emit("set_status", {"msg": "队列已清空", "duration": 2.0})
             return True
 
         return False
@@ -165,7 +171,7 @@ class TaskQueuePlugin(Plugin):
 
     def _get_actionable(self, entries: List[dict]) -> List[dict]:
         """过滤可操作事件：hitl, task_complete, error"""
-        return [e for e in entries if e.get("type") in TYPE_COLOR]
+        return [e for e in entries if e.get("type") in ACTIONABLE_TYPES]
 
     def _tmux(self, cmd: List[str]) -> bool:
         """执行 tmux 命令"""

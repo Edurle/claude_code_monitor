@@ -46,7 +46,7 @@ class MatrixRainPlugin(Plugin):
     def render_region(self, region_id: str, rect: Rect, data: dict) -> List[Tuple[int, int, str, Any]]:
         """渲染矩阵雨区域
 
-        返回 [(row, col, text, attr), ...], 绝对屏幕坐标
+        返回 [(row, col, text, attr), ...], 坐标相对于 Rect 左上角
         """
         if region_id != "matrix_rain":
             return []
@@ -77,8 +77,8 @@ class MatrixRainPlugin(Plugin):
 
             # 创建新发射器
             self._emitter_id = particles.create_matrix_rain(
-                x=rect.col,
-                y=rect.row,
+                x=0,
+                y=0,
                 width=rect.width,
                 height=rect.height - 1  # 最后一行留给扫描线
             )
@@ -88,14 +88,14 @@ class MatrixRainPlugin(Plugin):
         emitter = particles.get_emitter(self._emitter_id)
         if emitter:
             # 渲染矩阵雨（带边界裁剪）
-            bounds = (rect.row, rect.col, rect.row + rect.height - 1, rect.col + rect.width)
+            bounds = (0, 0, rect.height - 1, rect.width)
             elements = emitter.render(bounds)
             for (r, c, text, attr) in elements:
                 cells.append((r, c, text, attr))
 
         # 渲染扫描线（最后一行）
-        scan_line_row = rect.row + rect.height - 1
-        scan_cells = self._render_scan_line(scan_line_row, rect.col, rect.width, data)
+        scan_line_row = rect.height - 1
+        scan_cells = self._render_scan_line(scan_line_row, 0, rect.width, data)
         cells.extend(scan_cells)
 
         return cells

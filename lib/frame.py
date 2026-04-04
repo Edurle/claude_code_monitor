@@ -115,6 +115,7 @@ class Frame:
 
         self.plugin_manager = PluginManager(plugin_dir, config_path)
         self.plugin_manager.set_context(ctx)
+        ctx.plugin_manager = self.plugin_manager
 
         try:
             self.plugin_manager.load_config()
@@ -226,8 +227,8 @@ class Frame:
                     if cells:
                         fullscreen_cells = cells
                         break
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[Frame] fullscreen render error ({p.info.id}): {e}", file=sys.stderr)
 
             if fullscreen_cells:
                 self.blit(fullscreen_cells)
@@ -241,8 +242,8 @@ class Frame:
                                 continue
                             cells = p.render_region(region.id, rect, data)
                             self.blit(cells, offset=(rect.row, rect.col))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[Frame] region render error ({p.info.id}): {e}", file=sys.stderr)
 
                 # 3. 分隔线
                 self._draw_separators(layout, h, w)

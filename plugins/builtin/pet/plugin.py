@@ -296,8 +296,8 @@ class PetPlugin(Plugin):
 
         # 通过 EventBus 订阅事件
         if self._context and self._context.events:
-            self._context.events.subscribe("task_complete", self._on_task_complete_event)
-            self._context.events.subscribe("queue_changed", self._on_queue_changed)
+            self._context.events.on("task_complete", self._on_task_complete_event)
+            self._context.events.on("queue_changed", self._on_queue_changed)
 
     def declare_regions(self) -> List[Region]:
         """声明宠物区域"""
@@ -308,7 +308,7 @@ class PetPlugin(Plugin):
         if region_id != "pet":
             return []
 
-        self._update_state()
+        self._update_state(queue_length=len(data.get("entries", [])))
         self._frame += 1
 
         results = []
@@ -334,12 +334,12 @@ class PetPlugin(Plugin):
         if key == ord('p') or key == ord('P'):
             self.interact()
             if self._context and self._context.events:
-                self._context.events.emit("set_status", {"message": "摸了摸宠物~"})
+                self._context.events.emit("set_status", {"msg": "摸了摸宠物~"})
             return True
         elif key == ord('f') or key == ord('F'):
             self.feed()
             if self._context and self._context.events:
-                self._context.events.emit("set_status", {"message": "喂食成功~"})
+                self._context.events.emit("set_status", {"msg": "喂食成功~"})
             return True
         return False
 

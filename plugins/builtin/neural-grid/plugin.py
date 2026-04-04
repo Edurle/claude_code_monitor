@@ -42,7 +42,7 @@ class NeuralGridPlugin(Plugin):
             version="1.0.0",
             author="system",
             description="右下神经网格 — 会话状态卡片",
-            priority=PluginPriority(80),
+            priority=PluginPriority.HIGH,
             provides=["neural_grid"],
         )
 
@@ -58,11 +58,11 @@ class NeuralGridPlugin(Plugin):
             )
         ]
 
-    def on_load(self, ctx):
+    def on_load(self):
         """加载时订阅队列更新事件"""
-        super().on_load(ctx)
-        if ctx and ctx.events:
-            ctx.events.on("queue_update", self._on_queue_update)
+        super().on_load()
+        if self._context and self._context.events:
+            self._context.events.on("queue_update", self._on_queue_update)
 
     def _on_queue_update(self, event):
         """队列更新时刷新 sessions 缓存"""

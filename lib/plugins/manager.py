@@ -155,6 +155,7 @@ class PluginManager:
                     config=merged_config,
                     data_dir=self._context.data_dir,
                     animation_engine=self._context.animation_engine,
+                    plugin_manager=self,
                 )
                 plugin.set_context(plugin_context)
 
@@ -272,11 +273,13 @@ class PluginManager:
 
     def start_all(self):
         """启动所有已启用的插件"""
-        # 按依赖顺序启动
         for plugin_id in self._load_order:
             config = self._configs.get(plugin_id, PluginConfig())
             if config.enabled:
-                self.start_plugin(plugin_id)
+                try:
+                    self.start_plugin(plugin_id)
+                except Exception as e:
+                    print(f"[PluginManager] Failed to start {plugin_id}: {e}", file=sys.stderr)
 
     def stop_all(self):
         """停止所有插件"""

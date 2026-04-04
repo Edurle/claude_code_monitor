@@ -1,5 +1,14 @@
 """EventBus 发布/订阅系统，替代 HookRegistry。"""
+from enum import Enum
 from typing import Any, Callable, Dict, List, Tuple
+
+
+class EventType(str, Enum):
+    """事件类型枚举 — 继承 str 以兼容字符串事件名。"""
+    TASK_COMPLETE = "task_complete"
+    QUEUE_CHANGED = "queue_changed"
+    ACHIEVEMENT_UNLOCK = "achievement_unlock"
+    RESIZE = "resize"
 
 
 class EventBus:
@@ -36,6 +45,10 @@ class EventBus:
             self._subscribers[event] = [
                 (p, cb) for p, cb in self._subscribers[event] if cb is not callback
             ]
+
+    def subscribe(self, event, callback: Callable, priority: int = 50):
+        """Alias for on() — 兼容旧调用。"""
+        self.on(event, callback, priority)
 
     def clear(self):
         self._subscribers.clear()

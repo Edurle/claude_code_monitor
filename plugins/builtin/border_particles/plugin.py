@@ -45,7 +45,7 @@ class BorderParticlesPlugin(Plugin):
 
         # 通过 EventBus 订阅事件
         if self._context and self._context.events:
-            self._context.events.subscribe(EventType.RESIZE, self._on_resize_event)
+            self._context.events.on(EventType.RESIZE, self._on_resize_event)
 
     def on_start(self):
         super().on_start()
@@ -64,13 +64,12 @@ class BorderParticlesPlugin(Plugin):
 
     # ========== 发射器管理 ==========
 
-    def _create_border_emitters(self):
+    def _create_border_emitters(self, h: int = 24, w: int = 80):
         """创建四条边的粒子发射器"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return
 
-        ps: ParticleSystem = self._context.particle_system
-        h, w = self._context.monitor.get_effective_size()
+        ps: ParticleSystem = self._context.particles
         self._last_size = (h, w)
 
         configs = self._get_style_configs(self._style, h, w)
@@ -82,31 +81,28 @@ class BorderParticlesPlugin(Plugin):
 
     def _remove_border_emitters(self):
         """移除所有边框发射器"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return
-        ps = self._context.particle_system
+        ps = self._context.particles
         for emitter_id in self._emitter_ids.values():
             ps.remove_emitter(emitter_id)
         self._emitter_ids.clear()
 
-    def _check_resize(self):
+    def _check_resize(self, h: int, w: int):
         """检测终端尺寸变化，重建发射器"""
-        if not self._context or not self._context.monitor:
-            return
-        h, w = self._context.monitor.get_effective_size()
         if (h, w) != self._last_size:
             self._remove_border_emitters()
             self._create_border_emitters()
 
     def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
         """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return []
 
         # 检测 resize
-        self._check_resize()
+        self._check_resize(screen_h, screen_w)
 
-        ps = self._context.particle_system
+        ps = self._context.particles
 
         # 更新粒子系统（与 particle_fx 共享，短时间内重复调用 delta≈0）
         now = time.time()
@@ -127,19 +123,21 @@ class BorderParticlesPlugin(Plugin):
 
     def _on_resize_event(self, data: dict):
         """终端尺寸变化事件 (EventBus)"""
-        self._check_resize()
+        h = data.get("h", self._last_size[0])
+        w = data.get("w", self._last_size[1])
+        self._check_resize(h, w)
 
     # ========== 钩子实现 ==========
 
     def _render_particles(self) -> List[Tuple[int, int, str, int]]:
         """渲染边框粒子"""
-        if not self._context or not self._context.particle_system:
+        if not self._context or not self._context.particles:
             return []
 
-        # 检测 resize
-        self._check_resize()
+        # 检测 resize（使用缓存的尺寸）
+        self._check_resize(*self._last_size)
 
-        ps = self._context.particle_system
+        ps = self._context.particles
 
         # 更新粒子系统（与 particle_fx 共享，短时间内重复调用 delta≈0）
         now = time.time()

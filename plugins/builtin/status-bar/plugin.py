@@ -41,7 +41,7 @@ class StatusBarPlugin(Plugin):
     def on_enable(self):
         """启用时订阅 set_status 事件"""
         super().on_enable()
-        if self._context:
+        if self._context and self._context.events:
             self._context.events.on("set_status", self._on_set_status, priority=50)
 
     # ========== 事件处理 ==========

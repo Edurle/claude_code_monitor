@@ -185,8 +185,8 @@ class AchievementsPlugin(Plugin):
 
         # 通过 EventBus 订阅事件
         if self._context and self._context.events:
-            self._context.events.subscribe(EventType.TASK_COMPLETE, self._on_task_complete_event)
-            self._context.events.subscribe(EventType.QUEUE_CHANGED, self._on_queue_changed_event)
+            self._context.events.on(EventType.TASK_COMPLETE, self._on_task_complete_event)
+            self._context.events.on(EventType.QUEUE_CHANGED, self._on_queue_changed_event)
 
     def on_start(self):
         super().on_start()
@@ -248,13 +248,12 @@ class AchievementsPlugin(Plugin):
                 achievement = ACHIEVEMENTS.get(aid)
                 if achievement:
                     # 通知其他插件
-                    self._context.monitor._trigger_hook(
-                        "on_achievement_unlock", aid, {
-                            "name": achievement.name,
-                            "desc": achievement.desc,
-                            "icon": achievement.icon,
-                        }
-                    )
+                    self._context.events.emit("achievement_unlock", {
+                        "achievement_id": aid,
+                        "name": achievement.name,
+                        "desc": achievement.desc,
+                        "icon": achievement.icon,
+                    })
                     # 显示弹窗
                     self._show_popup(achievement)
 
@@ -275,8 +274,6 @@ class AchievementsPlugin(Plugin):
         self._popup_time = time.time()
         self._popup_duration = 3.0  # 3秒后自动消失
 
-        self._clear_popup()
-
     def _clear_popup(self):
         """清除弹窗"""
         self._popup_data = None
@@ -285,7 +282,8 @@ class AchievementsPlugin(Plugin):
     def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
         """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
         # 渲染成就弹窗
-        if self._popup_data and time.time() - self._popup_time < self._popup_duration:
+        if not self._popup_data or time.time() - self._popup_time >= self._popup_duration:
+            self._clear_popup()
             return []
 
         results = []
@@ -324,15 +322,14 @@ class AchievementsPlugin(Plugin):
         if newly_unlocked and self._context:
             for aid in newly_unlocked:
                 achievement = ACHIEVEMENTS.get(aid)
-                if achievement and self._context.monitor:
+                if achievement:
                     # 通知其他插件
-                    self._context.monitor._trigger_hook(
-                        "on_achievement_unlock", aid, {
-                            "name": achievement.name,
-                            "desc": achievement.desc,
-                            "icon": achievement.icon,
-                        }
-                    )
+                    self._context.events.emit("achievement_unlock", {
+                        "achievement_id": aid,
+                        "name": achievement.name,
+                        "desc": achievement.desc,
+                        "icon": achievement.icon,
+                    })
                     # 显示弹窗
                     self._show_popup(achievement)
 

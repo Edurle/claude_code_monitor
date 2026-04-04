@@ -133,34 +133,15 @@ class AchievementsViewPlugin(Plugin):
 
     def _get_achievements_data(self) -> dict:
         """获取成就数据"""
-        if not self._context:
+        if not self._context or not self._context.plugin_manager:
             return {}
 
-        # 尝试从成就插件获取
-        if self._context.stats:
-            # 通过 stats 获取成就管理器
-            pass
-
-        # 回退：通过 monitor 获取
-        if hasattr(self._context, "monitor") and self._context.monitor:
-            monitor = self._context.monitor
-
-            # 优先使用成就插件
-            achievement_plugin = getattr(monitor, "_get_achievement_plugin", lambda: None)()
-            if achievement_plugin:
-                return {
-                    "all": achievement_plugin.get_all(),
-                    "stats": achievement_plugin.stats,
-                }
-
-            # 回退到旧版
-            achievement_manager = getattr(monitor, "achievement_manager", None)
-            if achievement_manager:
-                return {
-                    "all": achievement_manager.get_all(),
-                    "stats": achievement_manager.stats,
-                }
-
+        achievement_plugin = self._context.plugin_manager.get_plugin("builtin.achievements")
+        if achievement_plugin:
+            return {
+                "all": achievement_plugin.get_all(),
+                "stats": achievement_plugin.stats,
+            }
         return {}
 
 

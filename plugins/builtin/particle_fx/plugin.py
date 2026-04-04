@@ -16,6 +16,7 @@ class ParticleFXPlugin(Plugin):
         super().__init__()
         self._effects_config: Dict[str, dict] = {}
         self._active_effects: Dict[str, str] = {}  # {effect_name: emitter_id}
+        self._screen_size: Tuple[int, int] = (20, 60)  # 缓存屏幕尺寸
 
     @property
     def info(self) -> PluginInfo:
@@ -56,8 +57,8 @@ class ParticleFXPlugin(Plugin):
 
         # 通过 EventBus 订阅事件
         if self._context and self._context.events:
-            self._context.events.subscribe(EventType.TASK_COMPLETE, self._on_task_complete_event)
-            self._context.events.subscribe(EventType.ACHIEVEMENT_UNLOCK, self._on_achievement_unlock_event)
+            self._context.events.on(EventType.TASK_COMPLETE, self._on_task_complete_event)
+            self._context.events.on(EventType.ACHIEVEMENT_UNLOCK, self._on_achievement_unlock_event)
 
     def on_start(self):
         super().on_start()
@@ -96,11 +97,9 @@ class ParticleFXPlugin(Plugin):
             return
 
         if self._context and self._context.particle_system:
-            # 使用实际屏幕尺寸计算中心位置
+            # 使用缓存屏幕尺寸计算中心位置
             ps = self._context.particle_system
-            h, w = 20, 60  # 默认值
-            if self._context.monitor:
-                h, w = self._context.monitor.get_effective_size()
+            h, w = self._screen_size
             center_y = h // 2
             center_x = w // 2
 
@@ -117,10 +116,8 @@ class ParticleFXPlugin(Plugin):
             return
 
         if self._context and self._context.particle_system:
-            # 使用实际屏幕尺寸计算中心位置
-            h, w = 20, 60  # 默认值
-            if self._context.monitor:
-                h, w = self._context.monitor.get_effective_size()
+            # 使用缓存屏幕尺寸计算中心位置
+            h, w = self._screen_size
             center_y = h // 2
             center_x = w // 2
 
@@ -128,6 +125,9 @@ class ParticleFXPlugin(Plugin):
 
     def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
         """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
+        # 缓存屏幕尺寸供事件回调使用
+        self._screen_size = (screen_h, screen_w)
+
         if not self._context or not self._context.particle_system:
             return []
 

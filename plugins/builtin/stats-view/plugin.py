@@ -121,16 +121,7 @@ class StatsViewPlugin(Plugin):
         """获取统计管理器"""
         if not self._context:
             return None
-
-        # 优先从 context 获取
-        if self._context.stats:
-            return self._context.stats
-
-        # 回退：通过 monitor 获取
-        if hasattr(self._context, "monitor") and self._context.monitor:
-            return getattr(self._context.monitor, "stats_manager", None)
-
-        return None
+        return self._context.stats
 
 
 # 导出插件类
