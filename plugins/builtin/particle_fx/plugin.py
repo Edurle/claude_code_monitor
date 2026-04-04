@@ -84,8 +84,8 @@ class ParticleFXPlugin(Plugin):
         # 更新粒子系统
         self._context.particles.update()
 
-        # 渲染所有粒子（不受 bounds 裁剪）
-        return self._context.particles.render()
+        # 只渲染自己的发射器，避免渲染其他插件（如矩阵雨）的粒子
+        return self._render_own_emitters()
 
     def _on_achievement_unlock(self, achievement_id: str, achievement_data: dict):
         """成就解锁时触发庆祝效果"""
@@ -103,8 +103,8 @@ class ParticleFXPlugin(Plugin):
             center_y = h // 2
             center_x = w // 2
 
-            ps.create_celebration(center_y, center_x, 6)
-            ps.create_sparkle(center_y, center_x, 15)
+            self._active_effects["celebration"] = ps.create_celebration(center_y, center_x, 6)
+            self._active_effects["sparkle"] = ps.create_sparkle(center_y, center_x, 15)
 
     def _on_task_complete(self, entry: dict, stats: dict):
         """任务完成时触发闪烁效果"""
@@ -121,7 +121,7 @@ class ParticleFXPlugin(Plugin):
             center_y = h // 2
             center_x = w // 2
 
-            self._context.particles.create_sparkle(center_x, center_y, 5)
+            self._active_effects["task_sparkle"] = self._context.particles.create_sparkle(center_x, center_y, 5)
 
     def render_overlay(self, screen_h: int, screen_w: int, data: dict) -> List[Tuple[int, int, str, int]]:
         """叠加层渲染。 返回 [(row, col, text, attr), ...], 绝对屏幕坐标。"""
@@ -134,8 +134,8 @@ class ParticleFXPlugin(Plugin):
         # 更新粒子系统
         self._context.particles.update()
 
-        # 渲染所有粒子（不受 bounds 裁剪）
-        return self._context.particles.render()
+        # 只渲染自己的发射器，避免渲染其他插件（如矩阵雨）的粒子
+        return self._render_own_emitters()
 
     # ========== EventBus 事件处理 ==========
 
@@ -149,6 +149,24 @@ class ParticleFXPlugin(Plugin):
 
     # ========== 公共 API ==========
 
+    def _render_own_emitters(self) -> List[Tuple[int, int, str, int]]:
+        """只渲染自己创建的发射器，跳过其他插件的粒子"""
+        ps = self._context.particles
+        all_cells = []
+        finished = []
+        for name, eid in self._active_effects.items():
+            emitter = ps.get_emitter(eid)
+            if emitter:
+                all_cells.extend(emitter.render())
+                # 自动清理已完成且无粒子的发射器
+                if emitter.is_empty and not emitter._active:
+                    finished.append(name)
+            else:
+                finished.append(name)
+        for name in finished:
+            del self._active_effects[name]
+        return all_cells
+
     def trigger_effect(self, effect_name: str, x: float = 0, y: float = 0, **kwargs):
         """手动触发粒子效果"""
         if not self._context or not self._context.particles:
@@ -158,16 +176,16 @@ class ParticleFXPlugin(Plugin):
 
         if effect_name == "celebration":
             spread = kwargs.get("spread", 6)
-            ps.create_celebration(y, x, spread)
+            self._active_effects[f"manual_{effect_name}"] = ps.create_celebration(y, x, spread)
         elif effect_name == "sparkle":
             count = kwargs.get("count", 10)
-            ps.create_sparkle(y, x, count)
+            self._active_effects[f"manual_{effect_name}"] = ps.create_sparkle(y, x, count)
         elif effect_name == "fire":
             width = kwargs.get("width", 5)
-            ps.create_fire(y, x, width)
+            self._active_effects[f"manual_{effect_name}"] = ps.create_fire(y, x, width)
         elif effect_name == "confetti":
             width = kwargs.get("width", 20)
-            ps.create_confetti(y, x, width)
+            self._active_effects[f"manual_{effect_name}"] = ps.create_confetti(y, x, width)
 
 
 # 插件入口
