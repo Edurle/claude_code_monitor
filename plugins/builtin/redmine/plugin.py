@@ -12,6 +12,7 @@ from typing import List, Tuple, Any, Optional, Dict
 
 from lib.plugins.core import Plugin, PluginInfo, PluginContext, PluginPriority
 from lib.layout import Region, Slot
+from lib.utils import display_width, truncate_to_width
 
 
 class RedminePlugin(Plugin):
@@ -25,6 +26,7 @@ class RedminePlugin(Plugin):
         self._issues: List[dict] = []
         self._error: Optional[str] = None
         self._page: int = 0
+        self._per_page: int = 10
         self._total_count: int = 0
         self._fetching: bool = False
         self._last_fetch: float = 0
@@ -142,6 +144,7 @@ class RedminePlugin(Plugin):
         else:
             # 任务列表
             per_page = max(1, rect.height - 3)  # 减去标题、分隔线、底栏
+            self._per_page = per_page
             total_pages = max(1, (len(self._issues) + per_page - 1) // per_page)
             if self._page >= total_pages:
                 self._page = total_pages - 1
@@ -154,7 +157,7 @@ class RedminePlugin(Plugin):
 
             for i in range(start, min(end, start + max_rows)):
                 issue = self._issues[i]
-                cells.extend(self._render_issue(row, i - start + 1, issue, width))
+                cells.extend(self._render_issue(row, issue, width))
                 row += 1
 
             # 底栏
@@ -164,7 +167,7 @@ class RedminePlugin(Plugin):
 
         return cells
 
-    def _render_issue(self, row: int, idx: int, issue: dict, width: int) -> List[Tuple[int, int, str, Any]]:
+    def _render_issue(self, row: int, issue: dict, width: int) -> List[Tuple[int, int, str, Any]]:
         """渲染单行任务"""
         cells = []
 
@@ -178,24 +181,27 @@ class RedminePlugin(Plugin):
         else:
             marker, color = "◆", curses.color_pair(3)
 
+        issue_id = issue.get("id", "?")
         subject = issue.get("subject", "")
         status = issue.get("status", {}).get("name", "")
 
-        # 布局: " 1 ● 主题                    状态"
-        left = f"{idx:>2} {marker} "
+        # 布局: "[#61084] ● 主题                    状态"
+        left = f"[#{issue_id}] {marker} "
         right_part = f" {status}"
-        max_subject = width - len(left) - len(right_part) - 1
+        left_w = display_width(left)
+        right_w = display_width(right_part)
+        max_subject = width - left_w - right_w - 1
         if max_subject < 4:
             max_subject = 4
 
-        truncated = subject[:max_subject]
+        truncated = truncate_to_width(subject, max_subject)
 
         cells.append((row, 0, left, color))
-        cells.append((row, len(left), truncated, curses.A_NORMAL))
+        cells.append((row, left_w, truncated, curses.A_NORMAL))
 
         # 状态靠右
-        status_col = width - len(right_part)
-        if status_col > len(left) + len(truncated):
+        status_col = width - right_w
+        if status_col > left_w + display_width(truncated):
             cells.append((row, status_col, right_part, curses.color_pair(5) | curses.A_DIM))
 
         return cells
@@ -210,7 +216,7 @@ class RedminePlugin(Plugin):
             return True
 
         if key in (ord(">"), ord(".")):
-            per_page = 10  # 估算值，实际在 render_region 计算
+            per_page = self._per_page
             total_pages = max(1, (len(self._issues) + per_page - 1) // per_page)
             if self._page < total_pages - 1:
                 self._page += 1

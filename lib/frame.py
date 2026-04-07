@@ -155,8 +155,14 @@ class Frame:
             except curses.error:
                 pass
         # 水平分隔线（右侧上下之间）
-        for rect in layout.values():
-            pass  # scan-line 由 matrix-rain 插件负责
+        for rid, r in layout.items():
+            if r.col == left_w + 1 and r.row == content_start:
+                gap_row = r.row + r.height
+                try:
+                    self.stdscr.addstr(gap_row, left_w + 1, "─" * r.width, curses.A_DIM)
+                except curses.error:
+                    pass
+                break
 
     # ── 收集 Region 声明 ──
 

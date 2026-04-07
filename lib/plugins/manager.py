@@ -62,6 +62,19 @@ class PluginManager:
             except Exception as e:
                 print(f"Warning: Failed to load plugin config: {e}", file=sys.stderr)
 
+        # 加载敏感配置（gitignored）
+        secrets_path = self.config_path.parent / "secrets.yaml"
+        if secrets_path.exists():
+            try:
+                with open(secrets_path) as f:
+                    secrets = yaml.safe_load(f) or {}
+                for pid, val in secrets.get("plugins", {}).items():
+                    if isinstance(val, dict) and "settings" in val:
+                        cfg = self._configs.setdefault(pid, PluginConfig())
+                        cfg.settings.update(val["settings"])
+            except Exception as e:
+                print(f"Warning: Failed to load secrets: {e}", file=sys.stderr)
+
     def save_config(self):
         """保存插件配置"""
         config_data = {"plugins": {}}
